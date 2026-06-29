@@ -14,10 +14,10 @@ def parse_script(file_path):
         return parse_pdf(file_path)
     elif ext in ('.docx', '.doc'):
         return parse_docx(file_path)
-    elif ext == '.txt':
+    elif ext in ('.txt', '.md', '.markdown'):
         return parse_txt(file_path)
     else:
-        raise ValueError(f"不支持的文件格式: {ext}，请上传 PDF、Word 或 TXT 文件")
+        raise ValueError(f"不支持的文件格式: {ext}，请上传 PDF、Word、TXT 或 MD 文件")
 
 
 def parse_pdf(file_path):
