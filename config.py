@@ -40,6 +40,8 @@ OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "qwen2.5:7b"
 DEEPSEEK_API_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
+OPENAI_API_URL = "https://api.openai.com/v1"
+OPENAI_MODEL = "gpt-4o"
 
 # 模型参数（种子固定保证输出可复现）
 SEED = 8012
@@ -60,6 +62,12 @@ AI_PROVIDERS = {
         "base_url": OLLAMA_BASE_URL,
         "default_model": OLLAMA_MODEL,
         "api_type": "ollama",
+    },
+    "openai": {
+        "name": "OpenAI ChatGPT",
+        "base_url": OPENAI_API_URL,
+        "default_model": OPENAI_MODEL,
+        "api_type": "openai",
     },
     "deepseek": {
         "name": "DeepSeek API",

@@ -133,6 +133,7 @@ class OpenAICompatibleProvider(AIProvider):
 
 PROVIDER_REGISTRY = {
     "ollama": OllamaProvider(),
+    "openai": OpenAICompatibleProvider(),
     "deepseek": OpenAICompatibleProvider(),
     # 未来扩展: "claude": ClaudeProvider(), "zhipu": ZhipuProvider(), "gpt": OpenAICompatibleProvider(),
 }

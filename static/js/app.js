@@ -639,6 +639,7 @@
         var apiConfig = getApiConfig();
         if (!getScriptText()) { showError('请上传剧本文件或粘贴剧本内容'); return; }
         if (apiConfig.provider === 'deepseek' && !apiConfig.api_key) { showError('请填写 API Key'); return; }
+        if (apiConfig.provider === 'openai' && !apiConfig.api_key) { showError('请填写 API Key'); return; }
         
         showScriptNameDialog(function() {
             var hasMaterials = !!(DOM.charBioText.value.trim() || DOM.outlineText.value.trim());
@@ -958,6 +959,10 @@
             config.api_key = DOM.apiKeyInput.value.trim();
             config.model = DOM.modelSelect.value || 'deepseek-v4-flash';
             config.base_url = DOM.baseUrlInput.value.trim() || 'https://api.deepseek.com';
+        } else if (provider === 'openai') {
+            config.api_key = DOM.apiKeyInput.value.trim();
+            config.model = DOM.modelInput.value.trim() || 'gpt-4o';
+            config.base_url = DOM.baseUrlInput.value.trim() || 'https://api.openai.com/v1';
         } else {
             config.model = DOM.modelInput.value.trim() || 'qwen2.5:7b';
             config.base_url = DOM.baseUrlInput.value.trim() || 'http://localhost:11434';
@@ -1157,16 +1162,26 @@
             DOM.apiKeyInput.placeholder = 'sk-...';
             DOM.modelInput.style.display = 'none';
             DOM.modelSelect.style.display = 'block';
-            // 仅在首次加载或无选项时设默认值
             if (!DOM.modelSelect.value) DOM.modelSelect.value = 'deepseek-v4-flash';
             DOM.baseUrlInput.placeholder = 'https://api.deepseek.com';
             DOM.baseUrlInput.value = 'https://api.deepseek.com';
-            
-            // 从 localStorage 恢复（仅覆盖 API Key）
             const savedKey = localStorage.getItem('ds_api_key');
             if (savedKey) DOM.apiKeyInput.value = savedKey;
             const savedUrl = localStorage.getItem('ds_base_url');
             if (savedUrl) DOM.baseUrlInput.value = savedUrl;
+            
+        } else if (provider === 'openai') {
+            DOM.apiKeyInput.style.display = 'block';
+            DOM.apiKeyInput.placeholder = 'sk-...';
+            DOM.modelInput.style.display = 'block';
+            DOM.modelSelect.style.display = 'none';
+            DOM.modelStatus.style.display = 'none';
+            DOM.modelInput.placeholder = 'gpt-4o';
+            DOM.modelInput.value = DOM.modelInput.value || 'gpt-4o';
+            DOM.baseUrlInput.placeholder = 'https://api.openai.com/v1';
+            DOM.baseUrlInput.value = 'https://api.openai.com/v1';
+            const savedKey = localStorage.getItem('oa_api_key');
+            if (savedKey) DOM.apiKeyInput.value = savedKey;
             
         } else {
             DOM.apiKeyInput.style.display = 'none';
