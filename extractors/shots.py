@@ -2,6 +2,8 @@
 分镜拆解 - Storyboard_Breakdown_Skills_v4.1
 两轮提取：第一轮拆分镜框架，第二轮生成六模块详情
 """
+# (C) foxpaw
+
 import json
 from .base import BaseExtractor
 

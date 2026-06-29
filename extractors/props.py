@@ -1,6 +1,8 @@
 """
 道具提取 - 两轮提取：第一轮列清单，第二轮生成细节
 """
+# (C) foxpaw
+
 from .base import BaseExtractor
 
 _KB_CONTENT = BaseExtractor._load_knowledge_base('Prop_Extraction_Skills_v3.0.json')

@@ -2,6 +2,8 @@
 剧本拆解大师v2.49版 - Flask Web 应用
 支持上传/粘贴剧本，通过 AI 进行角色、道具、场景、分镜四步提取
 """
+# (C) foxpaw
+
 
 import os
 import sys

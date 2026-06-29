@@ -2,6 +2,8 @@
  * 剧本拆解大师 v2.49 - 前端主逻辑
  */
 
+//  (C) foxpaw
+
 (function() {
     'use strict';
 

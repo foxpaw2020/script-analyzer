@@ -2,6 +2,8 @@
 场景拆解 - Scene_Extraction_Skills_v4.1
 两轮提取：第一轮识别场次，第二轮生成细节
 """
+# (C) foxpaw
+
 from .base import BaseExtractor
 
 _KB_CONTENT = BaseExtractor._load_knowledge_base('Scene_Extraction_Skills_v4.1.json')

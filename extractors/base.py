@@ -1,4 +1,6 @@
 """Extractors 公共基类 — 共享 JSON 解析逻辑"""
+# (C) foxpaw
+
 import json, os, re, sys
 
 

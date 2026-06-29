@@ -1,6 +1,8 @@
 """
 Word 报告生成 - 按知识库输出规则生成 .docx 报告
 """
+# (C) foxpaw
+
 
 import os
 import time
@@ -25,7 +27,18 @@ import config
 def generate_word_report(all_results, script_name, episode_info=None):
     """生成 Word 报告（按知识库输出规则）"""
     doc = Document()
+    doc.core_properties.author = "foxpaw"
+    doc.core_properties.last_modified_by = "foxpaw"
     
+    # 版权水印页脚
+    _sec = doc.sections[0]
+    _ft = _sec.footer
+    _ft.paragraphs[0].text = "foxpaw"
+    _ft.paragraphs[0].alignment = 0
+    for _r in _ft.paragraphs[0].runs:
+        _r.font.size = Pt(6)
+        _r.font.color.rgb = RGBColor(255, 255, 255)
+
     style = doc.styles['Normal']
     style.font.name = 'Microsoft YaHei'
     style.font.size = Pt(11)
