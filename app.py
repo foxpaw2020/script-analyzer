@@ -314,9 +314,9 @@ def analyze():
                 
                 # MIME 类型校验
                 ext = os.path.splitext(file.filename)[1].lower()
-                ALLOWED_EXTS = {'.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.doc': 'application/msword', '.txt': 'text/plain'}
+                ALLOWED_EXTS = {'.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.doc': 'application/msword', '.txt': 'text/plain', '.md': 'text/markdown', '.markdown': 'text/markdown'}
                 if ext not in ALLOWED_EXTS:
-                    yield json_sse("error", {"message": f"不支持的文件格式: {ext}，请上传 PDF、Word 或 TXT 文件"})
+                    yield json_sse("error", {"message": f"不支持的文件格式: {ext}，请上传 PDF、Word、TXT 或 MD 文件"})
                     return
                 
                 # 保存上传文件

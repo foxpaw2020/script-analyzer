@@ -1116,7 +1116,7 @@
         const validExts = ['pdf', 'docx', 'doc', 'txt'];
         
         if (!validExts.includes(ext)) {
-            showError('不支持的文件格式，请上传 PDF、Word 或 TXT 文件');
+            showError('不支持的文件格式，请上传 PDF、Word、TXT 或 MD 文件');
             DOM.fileInput.value = '';
             return;
         }
