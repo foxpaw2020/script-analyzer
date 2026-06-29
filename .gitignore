@@ -1,0 +1,36 @@
+# 虚拟环境
+venv/
+.env
+.venv/
+
+# 输出和上传文件
+outputs/
+uploads/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 日志和临时文件
+*.log
+/tmp/
+
+# PyInstaller 构建产物
+build/
+dist/
+*.spec
+
+# 密钥文件
+.secret_key

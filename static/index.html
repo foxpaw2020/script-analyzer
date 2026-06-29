@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>剧本拆解大师 v2.49</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+    <!-- ===== Error Toast ===== -->
+    <div class="error-toast" id="errorToast">
+        <div class="error-body">
+            <div class="error-title">错误</div>
+            <div class="error-message" id="errorMessage"></div>
+        </div>
+        <button class="error-close" id="errorClose">×</button>
+    </div>
+
+    <!-- ===== App Container ===== -->
+    <div class="app-container">
+
+        <!-- Navbar -->
+        <nav class="navbar">
+            <a href="/" class="navbar-brand">
+                <span>剧本拆解大师</span>
+            </a>
+            <div class="navbar-version">
+                v2.49 · AI Powered
+            </div>
+        </nav>
+
+        <!-- Hero -->
+        <section class="hero">
+            <h1>
+                智能 <span class="highlight">剧本分析</span> 引擎
+            </h1>
+            <p>
+                上传你的剧本，AI 自动完成角色提取、道具追踪、场景拆解和分镜规划
+                — 四步递进，一键生成专业拆解报告。
+            </p>
+            <div class="features">
+                <div class="feature-item"><span class="dot"></span> 支持 PDF / Word / TXT</div>
+                <div class="feature-item"><span class="dot"></span> Ollama + DeepSeek API</div>
+                <div class="feature-item"><span class="dot"></span> HTML + Word 双报告</div>
+                <div class="feature-item"><span class="dot"></span> 实时处理进度</div>
+            </div>
+        </section>
+
+        <!-- ===== Input Section ===== -->
+        <div class="input-section">
+            
+            <!-- File Upload -->
+            <div class="card" style="padding: 0;">
+                <div class="upload-zone" id="uploadZone">
+                    <svg class="upload-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <circle cx="24" cy="24" r="20"/>
+                        <path d="M24 16v16M16 24h16" stroke-linecap="round"/>
+                    </svg>
+                    <h3>上传剧本文件</h3>
+                    <p>拖拽文件到此处，或点击选择文件</p>
+                    <div class="formats">支持 PDF · DOCX · DOC · TXT (最大 50MB)</div>
+                    <input type="file" id="fileInput" accept=".pdf,.docx,.doc,.txt">
+                    
+                    <div class="file-info" id="fileInfo">
+                        <div>
+                            <span class="file-name" id="fileName"></span>
+                            <span class="file-size" id="fileSize"></span>
+                        </div>
+                        <button class="btn btn-danger btn-sm" id="clearFileBtn" style="margin-top: 8px;">
+                            移除文件
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Text Input -->
+            <div class="card text-input-area">
+                <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>或粘贴剧本内容</span>
+                    <div>
+                        <button class="btn btn-sm" id="clearCacheBtn" style="background:#8B0000;color:#FF6B6B;border:1px solid #FF4444;font-size:12px;padding:4px 10px;margin-right:6px;">清除缓存</button>
+                        <button class="btn btn-sm" id="clearTextBtn" style="background:#222;color:#888;border:1px solid #333;font-size:12px;padding:4px 10px;">清除</button>
+                    </div>
+                </div>
+                <textarea id="textInput" placeholder="将剧本内容粘贴到这里...
+
+支持标准剧本格式，例如：
+
+第一场 白天 室内 客厅
+[场景描述文字]
+角色A：对白内容
+角色B：回应内容
+
+第二场 夜晚 街头
+..." spellcheck="false"></textarea>
+                <div class="char-count" id="charCount">0 字符</div>
+            </div>
+        </div>
+
+        <!-- ===== 剧本拆解风格选择 ===== -->
+        <div class="card style-selector" id="styleSelector">
+            <div class="card-title">剧本拆解风格</div>
+            <div class="style-options">
+                <label class="style-option" id="styleNormalLabel">
+                    <input type="radio" name="breakdownStyle" value="normal">
+                    <span class="style-badge normal">普通拆解</span>
+                    <span class="style-desc">按智能体默认风格拆解</span>
+                </label>
+                <label class="style-option" id="styleFemaleLabel">
+                    <input type="radio" name="breakdownStyle" value="female" checked>
+                    <span class="style-badge female">女频分镜拆解</span>
+                    <span class="style-desc">女频导演视角：情感体验、CP感、微表情、空气感</span>
+                </label>
+                <label class="style-option" id="styleMaleLabel">
+                    <input type="radio" name="breakdownStyle" value="male">
+                    <span class="style-badge male">男频分镜拆解</span>
+                    <span class="style-desc">男频导演视角：爽点、权力关系、身份揭露、节奏感</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- ===== 人物小传 & 故事大纲 ===== -->
+        <div class="card materials-section" id="materialsSection">
+            <div class="card-title">人物小传 & 故事大纲 <span class="materials-status" id="materialsStatus"></span></div>
+            
+            <div class="materials-grid">
+                <div class="material-item">
+                    <div class="material-header">
+                        <span class="material-label">人物小传</span>
+                        <button class="btn btn-sm" id="clearCharBioBtn" style="display:none;background:#222;color:#888;border:1px solid #333;font-size:11px;padding:2px 8px;">清除</button>
+                    </div>
+                    <div class="material-input-row">
+                        <button class="btn btn-secondary btn-sm" id="uploadCharBioBtn">上传文件</button>
+                        <input type="file" id="charBioFileInput" accept=".pdf,.docx,.doc,.txt" style="display:none;">
+                    </div>
+                    <textarea id="charBioText" placeholder="粘贴人物小传内容...&#10;&#10;例如：&#10;张三（男主）：25岁，性格冷酷但内心温柔，出身武术世家...&#10;李四（女主）：22岁，活泼开朗，擅长医术..." spellcheck="false"></textarea>
+                    <div class="material-file-info" id="charBioFileInfo" style="display:none;"></div>
+                </div>
+                
+                <div class="material-item">
+                    <div class="material-header">
+                        <span class="material-label">故事大纲</span>
+                        <button class="btn btn-sm" id="clearOutlineBtn" style="display:none;background:#222;color:#888;border:1px solid #333;font-size:11px;padding:2px 8px;">清除</button>
+                    </div>
+                    <div class="material-input-row">
+                        <button class="btn btn-secondary btn-sm" id="uploadOutlineBtn">上传文件</button>
+                        <input type="file" id="outlineFileInput" accept=".pdf,.docx,.doc,.txt" style="display:none;">
+                    </div>
+                    <textarea id="outlineText" placeholder="粘贴故事大纲内容...&#10;&#10;例如：&#10;第一幕：男女主在校园相遇，产生误会...&#10;第二幕：共同经历冒险，感情升温..." spellcheck="false"></textarea>
+                    <div class="material-file-info" id="outlineFileInfo" style="display:none;"></div>
+                </div>
+            </div>
+            
+            <div style="margin-top:12px;display:flex;align-items:center;gap:8px;">
+                <button class="btn btn-primary btn-sm" id="preprocessBtn" style="display:none;">生成/更新知识库</button>
+                <span class="preprocess-hint" id="preprocessHint" style="font-size:12px;color:#888;"></span>
+            </div>
+        </div>
+
+        <!-- ===== API Config ===== -->
+        <div class="api-config">
+            <label>AI 引擎</label>
+            <select id="apiProvider">
+                <option value="ollama">Ollama（本地）</option>
+                <option value="deepseek" selected>DeepSeek API</option>
+            </select>
+            
+            <input type="text" id="apiKeyInput" class="api-key-input" 
+                   placeholder="sk-..." title="API Key">
+            
+            <label>模型</label>
+            <input type="text" id="modelInput" class="model-input" 
+                   placeholder="deepseek-v4-flash" title="模型名称"
+                   style="display:none;">
+            <select id="modelSelect" class="model-input" title="选择模型">
+                <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
+            </select>
+            <span id="modelStatus" style="font-size:12px;color:#888;display:none;"></span>
+            
+            <label>地址</label>
+            <input type="text" id="baseUrlInput" class="model-input" 
+                   placeholder="https://api.deepseek.com" title="API 地址">
+            
+            <button class="conn-dot" id="testConnBtn" title="测试连接"></button>
+        </div>
+
+        <!-- ===== 高级参数 ===== -->
+        <div class="params-panel">
+            <div class="params-toggle" id="paramsToggle">
+                高级参数 <span class="toggle-arrow">▼</span>
+            </div>
+            <div class="params-body" id="paramsBody" style="display:none;">
+                <div class="param-row">
+                    <label>Temperature <span class="param-hint">（创造力，越高越随机）</span></label>
+                    <div class="slider-group">
+                        <input type="range" id="paramTemperature" min="0" max="2" step="0.1" value="0">
+                        <span class="slider-val" id="valTemperature">0</span>
+                    </div>
+                </div>
+                <div class="param-row">
+                    <label>Top-P <span class="param-hint">（核采样，控制词汇多样性）</span></label>
+                    <div class="slider-group">
+                        <input type="range" id="paramTopP" min="0" max="1" step="0.05" value="0.95">
+                        <span class="slider-val" id="valTopP">0.95</span>
+                    </div>
+                </div>
+                <div class="param-row">
+                    <label>Frequency Penalty <span class="param-hint">（惩罚重复用词，越高越不重复）</span></label>
+                    <div class="slider-group">
+                        <input type="range" id="paramFreqPenalty" min="-2" max="2" step="0.1" value="0">
+                        <span class="slider-val" id="valFreqPenalty">0.0</span>
+                    </div>
+                </div>
+                <div class="param-row">
+                    <label>Presence Penalty <span class="param-hint">（惩罚已出现词，越高越推新词）</span></label>
+                    <div class="slider-group">
+                        <input type="range" id="paramPresPenalty" min="-2" max="2" step="0.1" value="0">
+                        <span class="slider-val" id="valPresPenalty">0.0</span>
+                    </div>
+                </div>
+                <div class="param-row">
+                    <label>Max Tokens <span class="param-hint" id="hintMaxTokens">（最大输出长度，视模型而定）</span></label>
+                    <div class="slider-group">
+                        <input type="range" id="paramMaxTokens" min="1000" max="384000" step="1000" value="384000">
+                        <span class="slider-val" id="valMaxTokens">384000</span>
+                    </div>
+                </div>
+                <div class="param-row param-check">
+                    <label>思考模式 <span class="param-hint">（仅 V4 Flash 支持，开启后模型先思考再回答）</span></label>
+                    <input type="checkbox" id="paramThinking">
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== Action Bar ===== -->
+        <div class="action-bar">
+            <div class="mode-switch">
+                <span class="mode-label">分析模式</span>
+                <button class="btn mode-btn active" id="modeAuto">一键拆解</button>
+                <button class="btn mode-btn" id="modeStep">分步拆解</button>
+            </div>
+            <div class="action-btns" id="autoBtns">
+                <button class="btn btn-primary btn-lg" id="startBtn">开始分析</button>
+                <button class="btn btn-danger btn-lg" id="stopBtn" style="display:none;">停止分析</button>
+            </div>
+            <div class="action-btns" id="stepBtns" style="display:none;">
+                <button class="btn btn-step" id="stepCharBtn">角色提取</button>
+                <button class="btn btn-step" id="stepPropBtn">道具提取</button>
+                <button class="btn btn-step" id="stepSceneBtn">场景拆解</button>
+                <button class="btn btn-step" id="stepShotBtn">分镜拆解</button>
+                <button class="btn btn-danger btn-lg" id="stopBtn2" style="display:none;">停止分析</button>
+            </div>
+        </div>
+
+        <!-- ===== Progress Panel ===== -->
+        <div class="progress-panel card" id="progressPanel">
+            <div class="card-title">分析进度<span id="analysisTimer" class="analysis-timer" style="display:none;">00:00</span></div>
+            
+            <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="progressBar"></div>
+            </div>
+            
+            <div class="progress-steps">
+                <div class="progress-step pending" id="stepChars">
+                    <div class="step-icon">○</div>
+                    <div class="step-info">
+                        <div class="step-label">角色提取</div>
+                        <div class="step-message">等待处理</div>
+                    </div>
+                    <div class="step-status"></div>
+                </div>
+                
+                <div class="progress-step pending" id="stepProps">
+                    <div class="step-icon">○</div>
+                    <div class="step-info">
+                        <div class="step-label">道具提取</div>
+                        <div class="step-message">等待处理</div>
+                    </div>
+                    <div class="step-status"></div>
+                </div>
+                
+                <div class="progress-step pending" id="stepScenes">
+                    <div class="step-icon">○</div>
+                    <div class="step-info">
+                        <div class="step-label">场景拆解</div>
+                        <div class="step-message">等待处理</div>
+                    </div>
+                    <div class="step-status"></div>
+                </div>
+                
+                <div class="progress-step pending" id="stepShots">
+                    <div class="step-icon">○</div>
+                    <div class="step-info">
+                        <div class="step-label">分镜拆解</div>
+                        <div class="step-message">等待处理</div>
+                    </div>
+                    <div class="step-status"></div>
+                </div>
+                
+                <div class="progress-step pending" id="stepReport">
+                    <div class="step-icon">○</div>
+                    <div class="step-info">
+                        <div class="step-label">生成报告</div>
+                        <div class="step-message">等待处理</div>
+                    </div>
+                    <div class="step-status"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== Results Section ===== -->
+        <div class="results-section" id="resultsSection">
+            <div class="results-header">
+                <h2>分析结果</h2>
+                <div class="results-actions">
+                    <button class="btn btn-secondary btn-sm" id="previewBtn">预览报告</button>
+                    <button class="btn btn-primary btn-sm" id="downloadHtmlBtn">下载 HTML</button>
+                    <button class="btn btn-secondary btn-sm" id="downloadWordBtn">下载 Word</button>
+                </div>
+            </div>
+            
+            <div class="output-path-hint" id="outputPathHint" style="display:none;background:#1A1A1A;border:1px solid #333;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#FF9D00;">
+                输出目录: <span id="outputPathText" style="color:#CCC;"></span>
+                <button class="btn btn-secondary btn-sm" id="openFolderBtn" style="margin-left:12px;">打开文件夹</button>
+            </div>
+            
+            <div class="result-summary" id="resultSummary">
+            </div>
+            
+            <!-- 提取结果详情区（卡片滚动） -->
+            <div class="result-detail" id="resultDetail">
+            </div>
+        </div>
+
+        <!-- ===== Footer ===== -->
+        <footer class="footer">
+            <p><span class="brand">剧本拆解大师 v2.49</span></p>
+            <p style="margin-top: 4px;">基于 AI 的智能剧本分析工具 · 支持 Ollama &amp; DeepSeek</p>
+        </footer>
+
+    </div>
+
+    <!-- ===== Floating Shot Splitter Button ===== -->
+    <button id="splitShotsBtn" class="split-btn" title="拆解全集分镜为单集文件">拆</button>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

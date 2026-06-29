@@ -1,0 +1,7 @@
+flask>=3.0
+python-docx>=1.1
+PyMuPDF>=1.23
+requests>=2.31
+mammoth>=1.12
+gunicorn>=21.2; sys_platform != 'win32'
+gevent>=24.0; sys_platform != 'win32'

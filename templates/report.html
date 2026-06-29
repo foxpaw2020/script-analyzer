@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if episode_info %}第{{ episode_info.current }}集 {% endif %}剧本拆解报告 - {{ script_name }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0A0A0A;
+            color: #E0E0E0;
+            line-height: 1.6;
+        }
+        .container { max-width: 960px; margin: 0 auto; padding: 40px 24px; }
+
+        .report-header { text-align: center; padding: 60px 0 40px; border-bottom: 1px solid #2A2A2A; margin-bottom: 48px; }
+        .report-header h1 { font-size: 42px; font-weight: 700; color: #FFF; letter-spacing: -0.02em; margin-bottom: 12px; }
+        .report-header .subtitle { font-size: 18px; color: #999; }
+        .report-header .meta { font-size: 14px; color: #666; margin-top: 8px; }
+
+        .section-nav { display: flex; gap: 8px; margin-bottom: 40px; flex-wrap: wrap; position: sticky; top: 0; background: #0A0A0A; padding: 12px 0; z-index: 10; }
+        .section-nav a { padding: 8px 20px; border-radius: 20px; background: #1A1A1A; color: #999; text-decoration: none; font-size: 14px; transition: all 0.3s; border: 1px solid transparent; }
+        .section-nav a:hover { background: #2A2A2A; color: #FFF; }
+
+        .section { margin-bottom: 60px; }
+        .section-header { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; padding-bottom: 16px; border-bottom: 1px solid #2A2A2A; }
+        .section-header h2 { font-size: 28px; font-weight: 600; color: #FFF; }
+        .section-header .count { background: linear-gradient(135deg, #FF6600, #FF9D00); color: #FFF; padding: 4px 14px; border-radius: 20px; font-size: 14px; font-weight: 600; }
+        .episode-section-label { font-size: 13px; color: #FF9D00; font-weight: 600; margin-bottom: -8px; }
+        .section-summary { background: #1A1A1A; border-left: 3px solid #FF6600; padding: 20px 24px; border-radius: 0 12px 12px 0; margin-bottom: 32px; color: #CCC; font-size: 15px; line-height: 1.8; }
+
+        /* 角色卡片 */
+        .character-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 20px; }
+        .character-card { background: #1A1A1A; border-radius: 12px; padding: 24px; transition: transform 0.2s; }
+        .character-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(255, 102, 0, 0.1); }
+        .character-card .name { font-size: 20px; font-weight: 600; color: #FFF; margin-bottom: 4px; }
+        .character-card .age-race { font-size: 13px; color: #FF9D00; margin-bottom: 6px; }
+        .character-card .role-type { display: inline-block; font-size: 12px; padding: 2px 10px; border-radius: 12px; background: rgba(255, 102, 0, 0.15); color: #FF9D00; margin-bottom: 12px; }
+        .character-card .description { color: #BBB; font-size: 14px; margin-bottom: 12px; }
+        .character-card .tag-container { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+        .character-card .tag { padding: 3px 10px; background: #252525; border-radius: 8px; font-size: 12px; color: #AAA; }
+        .character-card .relationships { font-size: 13px; color: #888; border-top: 1px solid #2A2A2A; padding-top: 10px; margin-top: 10px; }
+        .character-card .relationships span { display: block; margin: 2px 0; }
+        .character-card .text-signage { font-size: 12px; color: #FF9D00; margin-top: 6px; padding: 6px 10px; background: rgba(255, 102, 0, 0.05); border-radius: 6px; }
+        .info-card-block { background: #151515; border-left: 2px solid #555; padding: 12px 16px; margin: 12px 0; border-radius: 0 8px 8px 0; font-size: 13px; color: #BBB; line-height: 1.7; white-space: pre-wrap; }
+        .prompt-block { background: #0D0D0D; border: 1px solid #333; border-radius: 8px; padding: 12px 16px; margin: 8px 0; font-size: 12px; color: #AAA; line-height: 1.7; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto; }
+        .copy-btn { display: inline-block; padding: 4px 12px; background: #333; color: #CCC; border: none; border-radius: 6px; font-size: 11px; cursor: pointer; transition: all 0.2s; margin-top: 6px; }
+        .copy-btn:hover { background: #FF6600; color: #FFF; }
+        .copy-btn.copied { background: #4CAF50; color: #FFF; }
+        .scene-body.show { display: block !important; }
+        /* 编辑提示词按钮 */
+        .edit-btn { display: inline-block; padding: 4px 12px; background: #2A2A2A; color: #FF9D00; border: 1px solid #FF9D00; border-radius: 6px; font-size: 11px; cursor: pointer; transition: all 0.2s; margin-top: 6px; margin-left: 6px; }
+        .edit-btn:hover { background: #FF9D00; color: #0A0A0A; }
+        .edit-btn.editing { background: #FF6600; color: #FFF; border-color: #FF6600; }
+        .save-btn { display: inline-block; padding: 4px 12px; background: #4CAF50; color: #FFF; border: none; border-radius: 6px; font-size: 11px; cursor: pointer; transition: all 0.2s; margin-top: 6px; margin-left: 6px; }
+        .save-btn:hover { background: #388E3C; }
+        .version-info { display: inline-block; font-size: 11px; color: #888; margin-left: 8px; margin-top: 6px; }
+        .prompt-block.editing { max-height: none; border-color: #FF6600; box-shadow: 0 0 8px rgba(255, 102, 0, 0.3); outline: none; }
+
+
+        /* 道具卡片 */
+        .prop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
+        .prop-card { background: #1A1A1A; border-radius: 12px; padding: 20px; border-left: 3px solid #555; }
+        .prop-card.cat-A { border-left-color: #FF5100; }
+        .prop-card.cat-B { border-left-color: #FF9D00; }
+        .prop-card.cat-D { border-left-color: #4CAF50; }
+        .prop-card.cat-C { border-left-color: #555; opacity: 0.7; }
+        .prop-card .prop-name { font-size: 18px; font-weight: 600; color: #FFF; margin-bottom: 4px; }
+        .prop-card .prop-meta { font-size: 12px; color: #888; margin-bottom: 10px; }
+        .prop-card .prop-meta .badge { display: inline-block; padding: 2px 8px; border-radius: 8px; background: #252525; margin-right: 6px; }
+        .prop-card .prop-body { font-size: 14px; color: #BBB; }
+
+        /* 场景提示词区域 */
+        .prompt-pair { margin-top: 12px; }
+        .prompt-pair .prompt-label { font-size: 13px; font-weight: 600; color: #FF9D00; margin-bottom: 4px; }
+
+        /* 分镜卡片 */
+        .shot-card { background: #151515; border: 1px solid #2A2A2A; border-radius: 10px; padding: 16px 20px; margin-bottom: 12px; }
+        .shot-card .shot-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .shot-card .shot-head .shot-id { font-size: 14px; font-weight: 600; color: #FF6600; }
+        .shot-card .shot-head .shot-timing { font-size: 12px; color: #888; }
+        .shot-card .shot-attr { font-size: 13px; color: #AAA; line-height: 1.8; }
+        .shot-card .shot-attr strong { color: #FF9D00; }
+        .shot-card .timeline-table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; }
+        .shot-card .timeline-table th { background: #222; color: #FF9D00; padding: 6px 10px; text-align: left; font-weight: 600; }
+        .shot-card .timeline-table td { padding: 6px 10px; border-bottom: 1px solid #2A2A2A; color: #BBB; }
+        .shot-card .sfx-row { font-size: 13px; color: #888; margin-top: 6px; }
+        .shot-card .end-frame { background: #1A1A1A; border-radius: 6px; padding: 10px 14px; margin-top: 8px; font-size: 13px; color: #BBB; border-left: 2px solid #FF6600; }
+        .shot-card .constraints { font-size: 13px; color: #888; margin-top: 8px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+
+        .directing-notes { background: linear-gradient(135deg, rgba(255, 102, 0, 0.08), rgba(255, 81, 0, 0.05)); border: 1px solid rgba(255, 102, 0, 0.2); border-radius: 12px; padding: 20px 24px; margin-top: 24px; }
+        .directing-notes h4 { color: #FF9D00; margin-bottom: 8px; font-size: 16px; }
+        .directing-notes p { color: #CCC; font-size: 14px; line-height: 1.8; }
+
+        .report-footer { text-align: center; padding: 40px 0; border-top: 1px solid #2A2A2A; margin-top: 48px; color: #666; font-size: 13px; }
+        .report-footer .brand { background: linear-gradient(135deg, #FF6600, #FF9D00); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 600; }
+
+        @media (max-width: 768px) {
+            .container { padding: 20px 16px; }
+            .report-header h1 { font-size: 28px; }
+            .character-grid, .prop-grid { grid-template-columns: 1fr; }
+        }
+        @media print {
+            body { background: #FFF; color: #333; }
+            .container { max-width: 100%; }
+            .section-nav { display: none; }
+            .report-header { border-bottom-color: #DDD; }
+            .section-header { border-bottom-color: #DDD; }
+            .character-card, .prop-card, .shot-card, .section-summary, .directing-notes, .end-frame { background: #F5F5F5; border: 1px solid #DDD; }
+            .character-card .name, .report-header h1, .section-header h2 { color: #000; }
+            .copy-btn { display: none; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <!-- Header -->
+    <div class="report-header">
+        {% if episode_info %}
+        <div class="episode-badge">第{{ episode_info.current }}集</div>
+        {% endif %}
+        <h1>剧本拆解报告</h1>
+        <div class="subtitle">{{ script_name }}</div>
+        <div class="meta">生成时间：{{ generate_time }}</div>
+        {% if episode_info %}
+        <div class="meta" style="color:#FF9D00;">内容范围：第{{ episode_info.current }}集{% if episode_info.total %} / 共{{ episode_info.total }}集{% endif %}</div>
+        {% endif %}
+    </div>
+
+    <!-- Navigation -->
+    <div class="section-nav">
+        {% if results.characters %}<a href="#characters">角色提取</a>{% endif %}
+        {% if results.props %}<a href="#props">道具提取</a>{% endif %}
+        {% if results.scenes %}<a href="#scenes">场景拆解</a>{% endif %}
+        {% if results.shots %}<a href="#shots">分镜拆解</a>{% endif %}
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- 1. 角色提取（知识库 v4.0 格式：信息卡 + 提示词 + 复制按钮） -->
+    <!-- ============================================================ -->
+    {% if results.characters %}
+    <div class="section" id="characters">
+        <div class="section-header">
+            <h2>角色提取</h2>
+            {% if episode_info %}<div class="episode-section-label">第{{ episode_info.current }}集</div>{% endif %}
+            <span class="count">{{ results.characters.get('total_count', 0) }} 个角色</span>
+        </div>
+        {% if results.characters.summary %}
+        <div class="section-summary">{{ results.characters.summary }}</div>
+        {% endif %}
+        <div class="character-grid">
+            {% for char in results.characters.get('characters', []) %}
+            <div class="character-card">
+                <div class="name">{{ char.name }}{% if char.episodes %} <span style="font-size:12px;color:#FF9D00;">{{ char.episodes }}</span>{% endif %}</div>
+                {% if char.age_race %}<div class="age-race">{{ char.age_race }}</div>{% endif %}
+                {% if char.role_type %}<div class="role-type">{{ char.role_type }}</div>{% endif %}
+                {% if char.description %}<div class="description">{{ char.description }}</div>{% endif %}
+                {% if char.personality %}
+                <div class="tag-container">
+                    {% for trait in char.personality %}<span class="tag">{{ trait }}</span>{% endfor %}
+                </div>{% endif %}
+                {% if char.relationships %}
+                <div class="relationships">
+                    {% for rel in char.relationships %}<span>{{ rel.target }} — {{ rel.relation }}</span>{% endfor %}
+                </div>{% endif %}
+                {% if char.dialogue_count_estimate %}<div style="font-size:12px;color:#777;margin-top:8px;">对白量：{{ char.dialogue_count_estimate }}</div>{% endif %}
+                {% if char.text_signage %}<div class="text-signage">文字标识：{{ char.text_signage }}</div>{% endif %}
+                <!-- 信息卡 -->
+                {% if char.info_card %}
+                <div class="info-card-block">{{ char.info_card }}</div>
+                {% endif %}
+                <!-- 提示词 + 复制按钮 -->
+                {% if char.prompt %}
+                <div class="prompt-block" id="char_prompt_{{ loop.index0 }}">{{ char.prompt }}</div>
+                <button class="copy-btn" onclick="copyPrompt('char_prompt_{{ loop.index0 }}', this)">复制提示词</button>
+                <button class="edit-btn" onclick="toggleEdit('char_prompt_{{ loop.index0 }}', this)" id="edit_char_prompt_{{ loop.index0 }}">修改提示词</button>
+                <button class="save-btn" onclick="savePrompt('char_prompt_{{ loop.index0 }}', this)" id="save_char_prompt_{{ loop.index0 }}" style="display:none;">保存修改</button>
+                <span class="version-info" id="ver_char_prompt_{{ loop.index0 }}"></span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ============================================================ -->
+    <!-- 2. 道具提取（知识库 v4.0 格式：信息卡 + 提示词 + 复制按钮） -->
+    <!-- ============================================================ -->
+    {% if results.props %}
+    <div class="section" id="props">
+        <div class="section-header">
+            <h2>道具提取</h2>
+            {% if episode_info %}<div class="episode-section-label">第{{ episode_info.current }}集</div>{% endif %}
+            <span class="count">{{ results.props.get('total_count', 0) }} 个道具</span>
+        </div>
+        {% if results.props.summary %}
+        <div class="section-summary">{{ results.props.summary }}</div>
+        {% endif %}
+        <div class="prop-grid">
+            {% for prop in results.props.get('props', []) %}
+            {% set cat_class = 'cat-A' if 'A类' in (prop.category or '') else ('cat-B' if 'B类' in (prop.category or '') else ('cat-D' if 'D类' in (prop.category or '') else 'cat-C')) %}
+            <div class="prop-card {{ cat_class }}">
+                <div class="prop-name">{{ prop.name }}{% if prop.episodes %} <span style="font-size:12px;color:#FF9D00;">{{ prop.episodes }}</span>{% endif %}</div>
+                <div class="prop-meta">
+                    <span class="badge">{{ prop.category }}</span>
+                    <span class="badge">出现{{ prop.frequency or '?' }}场</span>
+                    {% if prop.quantity %}<span class="badge">×{{ prop.quantity }}</span>{% endif %}
+                </div>
+                <div class="prop-body">
+                    {% if prop.description %}<p style="margin-bottom:6px;">{{ prop.description }}</p>{% endif %}
+                    {% if prop.material %}<p style="color:#888;font-size:13px;">材质：{{ prop.material }} | 状态：{{ prop.condition or '—' }}</p>{% endif %}
+                    {% if prop.period_era %}<p style="color:#888;font-size:13px;">年代：{{ prop.period_era }}</p>{% endif %}
+                    {% if prop.text_signage %}<p style="color:#FF9D00;font-size:12px;">文字标识：{{ prop.text_signage }}</p>{% endif %}
+                    {% if prop.associated_characters %}<p style="color:#666;font-size:13px;margin-top:4px;">关联角色：{{ prop.associated_characters | join('、') }}</p>{% endif %}
+                </div>
+                {% if prop.info_card %}
+                <div class="info-card-block">{{ prop.info_card }}</div>
+                {% endif %}
+                {% if prop.prompt %}
+                <div class="prompt-block" id="prop_prompt_{{ loop.index0 }}">{{ prop.prompt }}</div>
+                <button class="copy-btn" onclick="copyPrompt('prop_prompt_{{ loop.index0 }}', this)">复制提示词</button>
+                <button class="edit-btn" onclick="toggleEdit('prop_prompt_{{ loop.index0 }}', this)" id="edit_prop_prompt_{{ loop.index0 }}">修改提示词</button>
+                <button class="save-btn" onclick="savePrompt('prop_prompt_{{ loop.index0 }}', this)" id="save_prop_prompt_{{ loop.index0 }}" style="display:none;">保存修改</button>
+                <span class="version-info" id="ver_prop_prompt_{{ loop.index0 }}"></span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ============================================================ -->
+    <!-- 3. 场景拆解（知识库 v4.1 格式：全景版+俯视图版+复制按钮） -->
+    <!-- ============================================================ -->
+    {% if results.scenes %}
+    <div class="section" id="scenes">
+        <div class="section-header">
+            <h2>场景拆解</h2>
+            {% if episode_info %}<div class="episode-section-label">第{{ episode_info.current }}集</div>{% endif %}
+            <span class="count">{{ results.scenes.get('total_count', 0) }} 个场景</span>
+        </div>
+        {% if results.scenes.summary %}
+        <div class="section-summary">{{ results.scenes.summary }}</div>
+        {% endif %}
+        {% for scene in results.scenes.get('scenes', []) %}
+        <div class="scene-item" style="background:#1A1A1A;border-radius:12px;margin-bottom:16px;overflow:hidden;">
+            <div class="scene-header" onclick="this.classList.toggle('active');var b=this.nextElementSibling;if(b)b.classList.toggle('show')"
+                 style="padding:16px 20px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none;">
+                <div>
+                    <div style="font-size:18px;font-weight:600;color:#FFF;">{{ scene.scene_number }}. {{ scene.title }}{% if scene.episode %} <span style="font-size:12px;color:#FF9D00;">{{ scene.episode }}</span>{% endif %}</div>
+                    <div style="font-size:13px;color:#888;">{{ scene.time or '' }} · {{ scene.location or '' }} · {{ scene.scene_type or '' }}{% if scene.emotion_tags %} · {{ scene.emotion_tags }}{% endif %}</div>
+                </div>
+                <div style="color:#666;font-size:14px;transition:transform 0.3s;">▼</div>
+            </div>
+            <div class="scene-body" style="padding:0 20px 16px;display:none;">
+                <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px;font-size:13px;color:#AAA;">
+                    <span><strong style="color:#FF9D00;">角色：</strong>{{ scene.characters | join('、') if scene.characters else '—' }}</span>
+                    {% if scene.props %}<span><strong style="color:#FF9D00;">道具：</strong>{{ scene.props | join('、') }}</span>{% endif %}
+                    <span><strong style="color:#FF9D00;">氛围：</strong>{{ scene.mood or '—' }}</span>
+                    <span><strong style="color:#FF9D00;">光影方案：</strong>{{ scene.lighting_scheme or '—' }}</span>
+                </div>
+                <p style="font-size:14px;color:#BBB;line-height:1.8;margin-bottom:6px;"><strong style="color:#FF9D00;">概要：</strong>{{ scene.synopsis or '' }}</p>
+                {% if scene.scene_info_card %}
+                <div class="info-card-block">{{ scene.scene_info_card }}</div>
+                {% endif %}
+                <div class="prompt-pair">
+                    <div class="prompt-label">全景版提示词（Wide Shot）</div>
+                    <div class="prompt-block" id="ws_prompt_{{ loop.index0 }}">{{ scene.wide_shot_prompt or '无' }}</div>
+                    <button class="copy-btn" onclick="copyPrompt('ws_prompt_{{ loop.index0 }}', this)">复制全景版</button>
+                    <button class="edit-btn" onclick="toggleEdit('ws_prompt_{{ loop.index0 }}', this)" id="edit_ws_prompt_{{ loop.index0 }}">修改提示词</button>
+                    <button class="save-btn" onclick="savePrompt('ws_prompt_{{ loop.index0 }}', this)" id="save_ws_prompt_{{ loop.index0 }}" style="display:none;">保存修改</button>
+                    <span class="version-info" id="ver_ws_prompt_{{ loop.index0 }}"></span>
+                </div>
+                <div class="prompt-pair">
+                    <div class="prompt-label" style="margin-top:8px;">俯视图版提示词（Top-down View）</div>
+                    <div class="prompt-block" id="td_prompt_{{ loop.index0 }}">{{ scene.topdown_prompt or '无' }}</div>
+                    <button class="copy-btn" onclick="copyPrompt('td_prompt_{{ loop.index0 }}', this)">复制俯视图版</button>
+                    <button class="edit-btn" onclick="toggleEdit('td_prompt_{{ loop.index0 }}', this)" id="edit_td_prompt_{{ loop.index0 }}">修改提示词</button>
+                    <button class="save-btn" onclick="savePrompt('td_prompt_{{ loop.index0 }}', this)" id="save_td_prompt_{{ loop.index0 }}" style="display:none;">保存修改</button>
+                    <span class="version-info" id="ver_td_prompt_{{ loop.index0 }}"></span>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- ============================================================ -->
+    <!-- 4. 分镜拆解（知识库 v4.1 格式：六模块分镜卡） -->
+    <!-- ============================================================ -->
+    {% if results.shots %}
+    <div class="section" id="shots">
+        <div class="section-header">
+            <h2>分镜拆解</h2>
+            {% if episode_info %}<div class="episode-section-label">第{{ episode_info.current }}集</div>{% endif %}
+            <span class="count">{{ results.shots.get('total_shots', 0) }} 个分镜</span>
+        </div>
+        {% if results.shots.summary %}
+        <div class="section-summary">{{ results.shots.summary }}</div>
+        {% endif %}
+        {% for scene_data in results.shots.get('scenes', []) %}
+        {% set outer_loop = loop %}
+        <div style="margin-bottom:24px;">
+            <h3 style="font-size:20px;font-weight:600;color:#FFF;margin-bottom:12px;">场景 {{ scene_data.scene_title }}</h3>
+            {% for shot in scene_data.get('shots', []) %}
+            {% set shot_id = 'shot_' ~ outer_loop.index0 ~ '_' ~ loop.index0 %}
+            <div class="shot-card" id="{{ shot_id }}">
+            <div class="shot-content" id="shot_content_{{ shot_id }}">
+                <div class="shot-head">
+                    <span class="shot-id">分镜 {{ shot.shot_id or shot.shot_number }}</span>
+                </div>
+                <!-- 核心属性设定 -->
+                <div class="shot-attr">
+                    <strong>主体资产:</strong> {{ shot.assets or shot.subject or '—' }}<br>
+                    <strong>光影:</strong> {{ shot.lighting or '—' }}<br>
+                    <strong>镜头:</strong> {{ shot.camera or '—' }}<br>
+                    {% if shot.gaze %}<strong>视线:</strong> {{ shot.gaze }}<br>{% endif %}
+                    {% if shot.proximity %}<strong>贴脸距离:</strong> {{ shot.proximity }}<br>{% endif %}
+                    <strong>情绪烈度:</strong> {{ shot.intensity or '—' }} | <strong>情绪:</strong> {{ shot.emotion or '—' }}
+                    {% if shot.rhythm_notes %}<div class="rhythm-notes" style="font-size:12px;color:#FF9D00;margin-top:6px;padding:6px 10px;background:#1A1A00;border-radius:4px;"><strong>节奏设计:</strong> {{ shot.rhythm_notes }}</div>{% endif %}
+                </div>
+                <!-- 秒级动作链 -->
+                {% if shot.timeline %}
+                <table class="timeline-table">
+                    <thead><tr><th>时间</th><th>动作/画面描述（含节奏·景别·运镜）</th></tr></thead>
+                    <tbody>
+                    {% for t in shot.timeline %}
+                    {% if t is mapping %}
+                    <tr>
+                      <td>{{ t.time_range or '—' }}</td>
+                      <td>{{ t.action or '—' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td>{{ t[0] if t|length > 0 and t[0] else '—' }}</td><td>{{ t[1] if t|length > 1 and t[1] else '—' }}</td></tr>
+                    {% endif %}
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% endif %}
+                <!-- 声音与台词 -->
+                {% if shot.dialogue %}<div class="shot-dialogue" style="font-size:13px;color:#AAA;margin-top:6px;"><strong>台词:</strong> {{ shot.dialogue }}</div>{% endif %}
+                {% if shot.sfx %}<div class="sfx-row"><strong>音效 SFX:</strong> {{ shot.sfx }}</div>{% endif %}
+                <!-- 收尾画面 -->
+                {% if shot.end_frame %}<div class="end-frame"><strong>收尾画面:</strong> {{ shot.end_frame }}</div>{% endif %}
+                <!-- 统一约束（完整输出，不裁剪） -->
+                {% if shot.constraints %}<div class="shot-constraints" style="font-size:13px;color:#888;margin-top:8px;padding:10px 14px;background:#1A1A1A;border-radius:6px;line-height:1.7;white-space:pre-wrap;word-break:break-word;">{{ shot.constraints }}</div>{% endif %}
+            </div>
+                <!-- 整段复制按钮 -->
+                <button class="copy-btn" onclick="copyShot('{{ shot_id }}', this)" style="margin-top:10px;">复制整段分镜</button>
+                <button class="edit-btn" onclick="toggleEditShot('shot_content_{{ shot_id }}', this)" id="edit_shot_{{ shot_id }}">修改分镜</button>
+                <button class="save-btn" onclick="saveShot('shot_content_{{ shot_id }}', this)" id="save_shot_{{ shot_id }}" style="display:none;">保存修改</button>
+                <span class="version-info" id="ver_shot_{{ shot_id }}"></span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+        {% if results.shots.directing_notes %}
+        <div class="directing-notes">
+            <h4>导演备注</h4>
+            <p>{{ results.shots.directing_notes }}</p>
+        </div>
+        {% endif %}
+    </div>
+    <script id="shots-data" type="application/json" style="display:none;">{{ results.shots | tojson | safe }}</script>
+    {% endif %}
+
+    <div class="report-footer">
+        <p>由 <span class="brand">剧本拆解大师 v2.49</span> 生成</p>
+        <p style="margin-top:4px;">{{ generate_time }}</p>
+    </div>
+
+</div>
+
+<script>
+// 复制提示词
+function copyPrompt(elementId, btn) {
+    var el = document.getElementById(elementId);
+    if (!el) return;
+    var text = el.innerText || el.textContent;
+    function done() {
+        btn.textContent = '已复制!';
+        btn.classList.add('copied');
+        setTimeout(function() {
+            btn.textContent = '复制提示词';
+            btn.classList.remove('copied');
+        }, 2000);
+    }
+    function fail() {
+        btn.textContent = '复制失败';
+        setTimeout(function() { btn.textContent = '复制提示词'; }, 1500);
+    }
+    // 优先 Clipboard API（localhost/https），失败回退到 execCommand（file:// 兼容）
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done).catch(fail);
+    } else {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); ta.remove(); done(); }
+        catch(e) { ta.remove(); fail(); }
+    }
+}
+// 复制整段分镜
+function copyShot(cardId, btn) {
+    var card = document.getElementById(cardId);
+    if (!card) return;
+    var parts = [];
+    var shotHead = card.querySelector('.shot-head');
+    var shotAttr = card.querySelector('.shot-attr');
+    if (shotAttr) {
+        if (shotHead) parts.push(shotHead.innerText.trim());
+        parts.push('');
+        parts.push(shotAttr.innerText.trim());
+        var timeline = card.querySelector('.timeline-table');
+        if (timeline) {
+            parts.push('');
+            parts.push('秒级动作链:');
+            var rows = timeline.querySelectorAll('tbody tr');
+            rows.forEach(function(r) {
+                var cells = r.querySelectorAll('td');
+                var rowText = [];
+                cells.forEach(function(c) { rowText.push(c.innerText.trim()); });
+                parts.push('  ' + rowText.join(' | '));
+            });
+        }
+        var dialogueEl = card.querySelector('.shot-dialogue');
+        if (dialogueEl && dialogueEl.innerText.trim()) parts.push('  ' + dialogueEl.innerText.trim());
+        var sfxEl = card.querySelector('.sfx-row');
+        if (sfxEl) parts.push('  ' + sfxEl.innerText.trim());
+        var endFrame = card.querySelector('.end-frame');
+        if (endFrame) parts.push('  ' + endFrame.innerText.trim());
+        var constrEl = card.querySelector('.shot-constraints');
+        if (constrEl) parts.push('  ' + constrEl.innerText.trim());
+    }
+    var fullText = parts.join('\n');
+    // 优先 Clipboard API（localhost/https），失败回退到 execCommand（file:// 兼容）
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(fullText).then(function() {
+            btn.textContent = '已复制整段!';
+            btn.classList.add('copied');
+            setTimeout(function() {
+                btn.textContent = '复制整段分镜';
+                btn.classList.remove('copied');
+            }, 2500);
+        }).catch(function() {
+            btn.textContent = '复制失败';
+            setTimeout(function() { btn.textContent = '复制整段分镜'; }, 1500);
+        });
+    } else {
+        var ta = document.createElement('textarea');
+        ta.value = fullText;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand('copy');
+            ta.remove();
+            btn.textContent = '已复制整段!';
+            btn.classList.add('copied');
+            setTimeout(function() {
+                btn.textContent = '复制整段分镜';
+                btn.classList.remove('copied');
+            }, 2500);
+        } catch(e) {
+            ta.remove();
+            btn.textContent = '复制失败';
+            setTimeout(function() { btn.textContent = '复制整段分镜'; }, 1500);
+        }
+    }
+}
+// 切换编辑模式
+function toggleEdit(elementId, btn) {
+    var el = document.getElementById(elementId);
+    if (!el) return;
+    var saveBtn = document.getElementById('save_' + elementId);
+    if (el.isContentEditable) {
+        el.contentEditable = 'false';
+        el.classList.remove('editing');
+        btn.textContent = '修改提示词';
+        btn.classList.remove('editing');
+        if (saveBtn) saveBtn.style.display = 'none';
+    } else {
+        el.contentEditable = 'true';
+        el.classList.add('editing');
+        btn.textContent = '取消修改';
+        btn.classList.add('editing');
+        if (saveBtn) saveBtn.style.display = 'inline-block';
+    }
+}
+// 切换分镜编辑模式
+function toggleEditShot(elementId, btn) {
+    var el = document.getElementById(elementId);
+    if (!el) return;
+    var saveBtn = document.getElementById('save_' + elementId.replace('shot_content_', 'shot_'));
+    if (!saveBtn) saveBtn = document.getElementById('save_' + elementId);
+    if (el.isContentEditable) {
+        el.contentEditable = 'false';
+        el.classList.remove('editing');
+        btn.textContent = '修改分镜';
+        btn.classList.remove('editing');
+        if (saveBtn) saveBtn.style.display = 'none';
+    } else {
+        el.contentEditable = 'true';
+        el.classList.add('editing');
+        btn.textContent = '取消修改';
+        btn.classList.add('editing');
+        if (saveBtn) saveBtn.style.display = 'inline-block';
+    }
+}
+// 保存提示词修改到 localStorage
+function savePrompt(elementId, btn) {
+    var el = document.getElementById(elementId);
+    if (!el) return;
+    var editBtn = document.getElementById('edit_' + elementId);
+    var verInfo = document.getElementById('ver_' + elementId);
+    var key = 'report_edit_' + elementId + '_' + window.location.pathname;
+    var saved = JSON.parse(localStorage.getItem(key) || '{"version":0,"time":"","content":""}');
+    saved.version += 1;
+    saved.time = new Date().toLocaleString('zh-CN', { hour12: false });
+    saved.content = el.innerText;
+    localStorage.setItem(key, JSON.stringify(saved));
+    // 更新界面
+    el.contentEditable = 'false';
+    el.classList.remove('editing');
+    btn.style.display = 'none';
+    if (editBtn) {
+        editBtn.textContent = '修改提示词';
+        editBtn.classList.remove('editing');
+    }
+    if (verInfo) {
+        verInfo.textContent = '第' + saved.version + '次修改 · 上次保存: ' + saved.time;
+        verInfo.style.color = '#4CAF50';
+    }
+}
+// 保存分镜修改到 localStorage
+function saveShot(elementId, btn) {
+    var el = document.getElementById(elementId);
+    if (!el) return;
+    var editBtn = document.getElementById('edit_' + elementId);
+    var verInfo = document.getElementById('ver_' + elementId);
+    var key = 'report_edit_' + elementId + '_' + window.location.pathname;
+    var saved = JSON.parse(localStorage.getItem(key) || '{"version":0,"time":"","content":""}');
+    saved.version += 1;
+    saved.time = new Date().toLocaleString('zh-CN', { hour12: false });
+    saved.content = el.innerHTML;
+    localStorage.setItem(key, JSON.stringify(saved));
+    el.contentEditable = 'false';
+    el.classList.remove('editing');
+    btn.style.display = 'none';
+    if (editBtn) {
+        editBtn.textContent = '修改分镜';
+        editBtn.classList.remove('editing');
+    }
+    if (verInfo) {
+        verInfo.textContent = '第' + saved.version + '次修改 · 上次保存: ' + saved.time;
+        verInfo.style.color = '#4CAF50';
+    }
+}
+// 页面加载时恢复所有已保存的修改
+window.addEventListener('DOMContentLoaded', function() {
+    var allVerEls = document.querySelectorAll('[id^="ver_"]');
+    allVerEls.forEach(function(el) {
+        var id = el.id.replace('ver_', '');
+        var key = 'report_edit_' + id + '_' + window.location.pathname;
+        var saved = JSON.parse(localStorage.getItem(key) || 'null');
+        if (saved && saved.version > 0) {
+            el.textContent = '第' + saved.version + '次修改 · 上次保存: ' + saved.time;
+            // 恢复内容
+            var promptEl = document.getElementById(id);
+            if (promptEl) {
+                promptEl.innerText = saved.content;
+            }
+        }
+    });
+});
+// 自动展开第一个场景
+document.querySelectorAll('.scene-item').forEach(function(item, i) {
+    if (i === 0) {
+        var h = item.querySelector('.scene-header');
+        var b = item.querySelector('.scene-body');
+        if (h && b) { h.classList.add('active'); b.classList.add('show'); }
+    }
+});
+document.querySelectorAll('.section-nav a').forEach(function(a) {
+    a.addEventListener('click', function(e) {
+        e.preventDefault();
+        var t = document.querySelector(a.getAttribute('href'));
+        if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+});
+</script>
+</body>
+</html>
