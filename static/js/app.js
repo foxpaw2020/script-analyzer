@@ -1113,7 +1113,7 @@
         if (!file) return;
         
         const ext = file.name.split('.').pop().toLowerCase();
-        const validExts = ['pdf', 'docx', 'doc', 'txt'];
+        const validExts = ['pdf', 'docx', 'doc', 'txt', 'md', 'markdown'];
         
         if (!validExts.includes(ext)) {
             showError('不支持的文件格式，请上传 PDF、Word、TXT 或 MD 文件');
