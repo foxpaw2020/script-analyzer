@@ -12,6 +12,8 @@ import time
 import uuid
 import logging
 import re
+import subprocess
+import threading
 import requests
 from flask import (
     Flask, request, jsonify, send_file,
@@ -512,11 +514,15 @@ def analyze():
                     raw = call_ai(sys_p, user_p, api_config)
                     result = characters.parse_result(raw)
                     results['characters'] = result
+                    cc = len(result.get('characters', []))
+                    if cc == 0:
+                        raw_preview = str(raw)[:400] if raw else '(AI未返回内容)'
+                        logging.getLogger("app").warning("角色第二轮返回0个角色，AI原始返回前500字: %s", str(raw)[:500])
+                        raise RuntimeError(f"角色详情生成失败：第二轮返回0个角色。AI原始返回前400字: {raw_preview}")
                     # 按角色重要性排序：主角 > 配角 > 龙套 > 未知
                     char_order = {'主角': 0, '配角': 1, '龙套': 2}
                     result['characters'] = sorted(result.get('characters', []),
                         key=lambda c: char_order.get(c.get('role_type', ''), 99))
-                    cc = len(result.get('characters', []))
                     # 生成分步 HTML 报告
                     partial_html = generate_html_report(results, script_name, episode_info=None)
                     partial_path = _output_path(script_name, '角色提取.html')
@@ -544,8 +550,9 @@ def analyze():
                         prop_names = []
                     
                     if len(prop_names) == 0:
-                        results['props'] = {"props":[],"total_count":0,"summary":"第一轮未识别到道具"}
-                        yield json_sse("progress", {"step": "props", "status": "complete", "label": "道具提取", "message": f"⚠️ 第一轮扫描到0个道具。AI原始返回前200字: {raw[:200]}"})
+                        raw_preview = str(raw)[:300] if raw else '(AI未返回内容)'
+                        logging.getLogger("app").warning("道具第一轮返回0个道具，AI原始返回前500字: %s", str(raw)[:500])
+                        raise RuntimeError(f"道具第一轮未识别到任何道具。AI原始返回: {raw_preview}")
                     else:
                         yield json_sse("progress", {"step": "props", "status": "processing", "label": "道具提取", "message": f"发现 {len(prop_names)} 个道具，第二轮：生成详情和提示词..."})
                         sys_p, user_p = props.build_detail_prompt(script_text, prop_names, results, temp_kb=temp_kb)
@@ -574,6 +581,11 @@ def analyze():
                     sys_p, user_p = scenes.build_list_prompt(script_text)
                     raw = call_ai(sys_p, user_p, api_config)
                     scene_list = scenes.parse_list(raw)
+                    if not scene_list and raw:
+                        logging.getLogger("app").warning("场景第一轮返回无法解析，AI原始返回前500字: %s", str(raw)[:500])
+                    if not scene_list:
+                        raw_preview = str(raw)[:300] if raw else '(AI未返回内容)'
+                        raise RuntimeError(f"第一轮未识别到任何场景。AI原始返回: {raw_preview}")
                     
                     yield json_sse("progress", {"step": "scenes", "status": "processing", "label": "场景拆解", "message": f"发现 {len(scene_list)} 个场景，第二轮：生成十层描述和双版提示词..."})
                     sys_p, user_p = scenes.build_detail_prompt(script_text, scene_list, results, temp_kb=temp_kb)
@@ -581,6 +593,10 @@ def analyze():
                     result = scenes.parse_result(raw)
                     results['scenes'] = result
                     sc = len(result.get('scenes', []))
+                    if sc == 0:
+                        raw_preview = str(raw)[:400] if raw else '(AI未返回内容)'
+                        logging.getLogger("app").warning("场景第二轮返回0个场景，AI原始返回前500字: %s", str(raw)[:500])
+                        raise RuntimeError(f"第二轮生成0个场景详情。AI原始返回前400字: {raw_preview}")
                     # 生成分步 HTML 报告
                     partial_html = generate_html_report(results, script_name, episode_info=None)
                     partial_path = _output_path(script_name, '场景拆解.html')
@@ -1119,8 +1135,6 @@ if __name__ == '__main__':
     else:
         # 开发环境：使用 Flask 内置服务器
         import io
-        import webbrowser
-        import threading
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
         
         print("=" * 60)
@@ -1137,11 +1151,11 @@ if __name__ == '__main__':
             print(f"  Output directory: {os.path.dirname(os.path.abspath(sys.executable))}")
         print("=" * 60)
         
-        # 延迟1秒后自动打开默认浏览器
+        # 延迟1.5秒后自动打开默认浏览器（PyInstaller兼容）
         def open_browser():
             import time
-            time.sleep(1)
-            webbrowser.open(f'http://localhost:{port}')
+            time.sleep(1.5)
+            subprocess.run(['open', f'http://localhost:{port}'], check=False)
         threading.Thread(target=open_browser, daemon=True).start()
         
         app.run(

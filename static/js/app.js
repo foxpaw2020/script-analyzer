@@ -434,16 +434,26 @@
                 detailHTML += '<div class="result-card-body">';
                 if (s.synopsis) detailHTML += '<div style="margin-bottom:6px;">' + escapeHtml(s.synopsis) + '</div>';
                 if (s.emotion_tags) detailHTML += '<div style="color:#888;font-size:12px;">情绪：' + escapeHtml(s.emotion_tags) + ' | 光影：' + escapeHtml(s.lighting_scheme||'') + '</div>';
-                var wsid = 'ws_' + i, tdid = 'td_' + i;
-                if (s.wide_shot_prompt) {
-                    detailHTML += '<div style="color:#FF9D00;font-size:12px;margin-top:8px;">全景版：</div>';
-                    detailHTML += '<div class="prompt-preview" id="' + wsid + '">' + escapeHtml(s.wide_shot_prompt) + '</div>';
-                    detailHTML += '<button class="copy-btn-small" onclick="copyCardPrompt(\'' + wsid + '\',this)">复制全景版</button>';
+                var wnid = 'wn_' + i, wgid = 'wg_' + i, tnid = 'tn_' + i, tgid = 'tg_' + i;
+                if (s.wide_shot_nano) {
+                    detailHTML += '<div style="color:#FF9D00;font-size:12px;margin-top:8px;">全景版 · Nano：</div>';
+                    detailHTML += '<div class="prompt-preview" id="' + wnid + '">' + escapeHtml(s.wide_shot_nano) + '</div>';
+                    detailHTML += '<button class="copy-btn-small" onclick="copyCardPrompt(\'' + wnid + '\',this)">复制</button>';
                 }
-                if (s.topdown_prompt) {
-                    detailHTML += '<div style="color:#FF9D00;font-size:12px;margin-top:8px;">俯视图版：</div>';
-                    detailHTML += '<div class="prompt-preview" id="' + tdid + '">' + escapeHtml(s.topdown_prompt) + '</div>';
-                    detailHTML += '<button class="copy-btn-small" onclick="copyCardPrompt(\'' + tdid + '\',this)">复制俯视图版</button>';
+                if (s.wide_shot_gpt) {
+                    detailHTML += '<div style="color:#FF9D00;font-size:12px;margin-top:8px;">全景版 · GPT：</div>';
+                    detailHTML += '<div class="prompt-preview" id="' + wgid + '">' + escapeHtml(s.wide_shot_gpt) + '</div>';
+                    detailHTML += '<button class="copy-btn-small" onclick="copyCardPrompt(\'' + wgid + '\',this)">复制</button>';
+                }
+                if (s.topdown_nano) {
+                    detailHTML += '<div style="color:#FF9D00;font-size:12px;margin-top:8px;">俯视图版 · Nano：</div>';
+                    detailHTML += '<div class="prompt-preview" id="' + tnid + '">' + escapeHtml(s.topdown_nano) + '</div>';
+                    detailHTML += '<button class="copy-btn-small" onclick="copyCardPrompt(\'' + tnid + '\',this)">复制</button>';
+                }
+                if (s.topdown_gpt) {
+                    detailHTML += '<div style="color:#FF9D00;font-size:12px;margin-top:8px;">俯视图版 · GPT：</div>';
+                    detailHTML += '<div class="prompt-preview" id="' + tgid + '">' + escapeHtml(s.topdown_gpt) + '</div>';
+                    detailHTML += '<button class="copy-btn-small" onclick="copyCardPrompt(\'' + tgid + '\',this)">复制</button>';
                 }
                 detailHTML += '</div></div>';
             });

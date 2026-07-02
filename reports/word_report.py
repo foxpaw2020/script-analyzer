@@ -151,20 +151,49 @@ def generate_word_report(all_results, script_name, episode_info=None):
                 run = p.add_run('场景信息卡：')
                 run.bold = True
                 doc.add_paragraph(scene['scene_info_card'])
-            # 全景版
-            if scene.get('wide_shot_prompt'):
+            if scene.get('extraction_basis'):
                 p = doc.add_paragraph()
-                run = p.add_run('全景版提示词（Wide Shot）：')
+                run = p.add_run('提取依据：')
+                run.bold = True
+                doc.add_paragraph(scene['extraction_basis'])
+            if scene.get('urban_microclimate'):
+                p = doc.add_paragraph()
+                run = p.add_run('城市微气候：')
+                run.bold = True
+                doc.add_paragraph(scene['urban_microclimate'])
+            if scene.get('general_params'):
+                p = doc.add_paragraph()
+                run = p.add_run('通用实拍参数：')
+                run.bold = True
+                doc.add_paragraph(scene['general_params'])
+            # 全景版 · Nano
+            if scene.get('wide_shot_nano'):
+                p = doc.add_paragraph()
+                run = p.add_run('全景版 · Nano Banana 2 Pro：')
                 run.bold = True
                 run.font.color.rgb = RGBColor(255, 153, 0)
-                doc.add_paragraph(_safe(scene['wide_shot_prompt']))
-            # 俯视图版
-            if scene.get('topdown_prompt'):
+                doc.add_paragraph(_safe(scene['wide_shot_nano']))
+            # 全景版 · GPT
+            if scene.get('wide_shot_gpt'):
                 p = doc.add_paragraph()
-                run = p.add_run('俯视图版提示词（Top-down View）：')
+                run = p.add_run('全景版 · GPT-Image-2：')
                 run.bold = True
                 run.font.color.rgb = RGBColor(255, 153, 0)
-                doc.add_paragraph(_safe(scene['topdown_prompt']))
+                doc.add_paragraph(_safe(scene['wide_shot_gpt']))
+            # 俯视图版 · Nano
+            if scene.get('topdown_nano'):
+                p = doc.add_paragraph()
+                run = p.add_run('俯视图版 · Nano Banana 2 Pro：')
+                run.bold = True
+                run.font.color.rgb = RGBColor(255, 153, 0)
+                doc.add_paragraph(_safe(scene['topdown_nano']))
+            # 俯视图版 · GPT
+            if scene.get('topdown_gpt'):
+                p = doc.add_paragraph()
+                run = p.add_run('俯视图版 · GPT-Image-2：')
+                run.bold = True
+                run.font.color.rgb = RGBColor(255, 153, 0)
+                doc.add_paragraph(_safe(scene['topdown_gpt']))
             doc.add_paragraph('')
     
     # 4. 分镜拆解（六模块分镜卡）

@@ -6,7 +6,7 @@
 from .base import BaseExtractor
 
 _KB_CONTENT = BaseExtractor._load_knowledge_base('Prop_Extraction_Skills_v3.0.json')
-_KB_LITE = BaseExtractor._load_knowledge_base('Prop_Extraction_Skills_v3.0.json')
+# _KB_LITE 已废弃 - 第一轮不需要知识库注入
 
 LIST_SYSTEM = """你是剧本道具分析师。从剧本第一行到最后一行，逐场扫描，统计每个物品出现次数。
 
@@ -21,7 +21,7 @@ LIST_SYSTEM = """你是剧本道具分析师。从剧本第一行到最后一行
 输出纯JSON：
 {"props":["道具1","道具2","道具3"],"total":数量}"""
 
-LIST_SYSTEM = (LIST_SYSTEM + "\n\n---\n\n" + _KB_LITE) if _KB_LITE else LIST_SYSTEM
+# 第一轮不做知识库注入（知识库内容为道具详情提取规则，与名单罗列任务无关，会干扰AI输出）
 
 def build_list_prompt(script_text, context=None, min_appearances=2):
     if min_appearances <= 1:
@@ -67,9 +67,9 @@ def build_detail_prompt(script_text, names, context=None, temp_kb=None):
 def parse_result(raw_text):
     parsed = BaseExtractor._safe_json_parse_with_fallback(raw_text)
     if parsed is None or not isinstance(parsed, dict):
-        return {"props":[],"total_count":0,"summary":"解析失败","raw":raw_text[:500] if isinstance(raw_text, str) else ""}
+        return {"props":[],"total_count":0,"summary":"解析失败","raw":raw_text[:500] if isinstance(raw_text, str) else "EMPTY"}
     p = parsed.get("props") or parsed.get("prop") or parsed.get("items") or []
     if isinstance(p,dict): p = list(p.values())
     if not isinstance(p,list): p = []
     tc = parsed.get("total_count")
-    return {"props":p,"total_count":tc if tc is not None else len(p),"platform":parsed.get("platform","Netflix"),"summary":parsed.get("summary") or "","raw":None}
+    return {"props":p,"total_count":tc if tc is not None else len(p),"platform":parsed.get("platform","Netflix"),"summary":parsed.get("summary") or "","raw":"(保留原始返回待调试)"}

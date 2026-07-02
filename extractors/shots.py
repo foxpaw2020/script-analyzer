@@ -259,11 +259,11 @@ def build_detail_prompt(script_text, plan, context=None, style="normal", emotion
 def parse_result(raw_text):
     parsed = BaseExtractor._safe_json_parse_with_fallback(raw_text)
     if parsed is None or not isinstance(parsed, dict):
-        return {"scenes":[],"total_scenes":0,"total_shots":0,"summary":"解析失败","raw":raw_text[:500] if isinstance(raw_text, str) else ""}
+        return {"scenes":[],"total_scenes":0,"total_shots":0,"summary":"解析失败","raw":raw_text[:500] if isinstance(raw_text, str) else "EMPTY"}
     s = parsed.get("scenes") or parsed.get("storyboard") or []
     if isinstance(s,dict): s = list(s.values())
     if not isinstance(s,list): s = []
     ts = parsed.get("total_shots")
     if ts is None: ts = sum(len(x.get("shots",[])) for x in s)
     tsc = parsed.get("total_scenes")
-    return {"scenes":s,"total_scenes":tsc if tsc is not None else len(s),"total_shots":ts,"summary":parsed.get("summary") or "","directing_notes":parsed.get("directing_notes",""),"raw":None}
+    return {"scenes":s,"total_scenes":tsc if tsc is not None else len(s),"total_shots":ts,"summary":parsed.get("summary") or "","directing_notes":parsed.get("directing_notes",""),"raw":"(保留原始返回待调试)"}

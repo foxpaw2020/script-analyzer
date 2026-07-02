@@ -23,7 +23,7 @@ LIST_SYSTEM = """你是剧本角色分析师。从剧本第一行到最后一行
 输出纯JSON，不带任何其他文字：
 {"characters":["名1","名2","名3"],"total":数量}"""
 
-LIST_SYSTEM = (LIST_SYSTEM + "\n\n---\n\n" + _KB_CONTENT) if _KB_CONTENT else LIST_SYSTEM
+# 第一轮不做知识库注入（知识库内容为角色详情提取规则，与名单罗列任务无关，会干扰AI输出）
 
 LIST_USER = "完整列出以下剧本中所有角色名，不得遗漏任何一个。\n\n剧本：\n{script_text}"
 
@@ -65,9 +65,9 @@ def build_detail_prompt(script_text, names, context=None, temp_kb=None):
 def parse_result(raw_text):
     parsed = BaseExtractor._safe_json_parse_with_fallback(raw_text)
     if parsed is None or not isinstance(parsed, dict):
-        return {"characters":[],"total_count":0,"summary":"解析失败","raw":raw_text[:500] if isinstance(raw_text, str) else ""}
+        return {"characters":[],"total_count":0,"summary":"解析失败","raw":raw_text[:500] if isinstance(raw_text, str) else "EMPTY"}
     chars = parsed.get("characters") or parsed.get("character") or parsed.get("cast") or parsed.get("roles") or []
     if isinstance(chars,dict): chars = list(chars.values())
     if not isinstance(chars,list): chars = []
     tc = parsed.get("total_count")
-    return {"characters":chars,"total_count":tc if tc is not None else len(chars),"platform":parsed.get("platform","Netflix"),"summary":parsed.get("summary") or "","raw":None}
+    return {"characters":chars,"total_count":tc if tc is not None else len(chars),"platform":parsed.get("platform","Netflix"),"summary":parsed.get("summary") or "","raw":"(保留原始返回待调试)"}

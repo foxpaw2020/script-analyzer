@@ -234,7 +234,7 @@
     {% endif %}
 
     <!-- ============================================================ -->
-    <!-- 3. 场景拆解（知识库 v4.1 格式：全景版+俯视图版+复制按钮） -->
+    <!-- 3. 场景拆解（知识库 v5.1 格式：Nano+GPT双模型四版提示词） -->
     <!-- ============================================================ -->
     {% if results.scenes %}
     <div class="section" id="scenes">
@@ -267,22 +267,47 @@
                 {% if scene.scene_info_card %}
                 <div class="info-card-block">{{ scene.scene_info_card }}</div>
                 {% endif %}
-                <div class="prompt-pair">
-                    <div class="prompt-label">全景版提示词（Wide Shot）</div>
-                    <div class="prompt-block" id="ws_prompt_{{ loop.index0 }}">{{ scene.wide_shot_prompt or '无' }}</div>
-                    <button class="copy-btn" onclick="copyPrompt('ws_prompt_{{ loop.index0 }}', this)">复制全景版</button>
-                    <button class="edit-btn" onclick="toggleEdit('ws_prompt_{{ loop.index0 }}', this)" id="edit_ws_prompt_{{ loop.index0 }}">修改提示词</button>
-                    <button class="save-btn" onclick="savePrompt('ws_prompt_{{ loop.index0 }}', this)" id="save_ws_prompt_{{ loop.index0 }}" style="display:none;">保存修改</button>
-                    <span class="version-info" id="ver_ws_prompt_{{ loop.index0 }}"></span>
+                {% if scene.extraction_basis %}
+                <p style="font-size:13px;color:#888;margin-bottom:4px;"><strong style="color:#FF9D00;">提取依据：</strong>{{ scene.extraction_basis }}</p>
+                {% endif %}
+                {% if scene.urban_microclimate %}
+                <p style="font-size:13px;color:#888;margin-bottom:4px;"><strong style="color:#FF9D00;">城市微气候：</strong>{{ scene.urban_microclimate }}</p>
+                {% endif %}
+                {% if scene.general_params %}
+                <div class="prompt-pair" style="margin-bottom:12px;">
+                    <div class="prompt-label" style="color:#4CAF50;">通用实拍参数（适用于以下全部提示词）</div>
+                    <div class="prompt-block" id="gp_prompt_{{ loop.index0 }}">{{ scene.general_params }}</div>
+                    <button class="copy-btn" onclick="copyPrompt('gp_prompt_{{ loop.index0 }}', this)">复制</button>
                 </div>
+                {% endif %}
+
                 <div class="prompt-pair">
-                    <div class="prompt-label" style="margin-top:8px;">俯视图版提示词（Top-down View）</div>
-                    <div class="prompt-block" id="td_prompt_{{ loop.index0 }}">{{ scene.topdown_prompt or '无' }}</div>
-                    <button class="copy-btn" onclick="copyPrompt('td_prompt_{{ loop.index0 }}', this)">复制俯视图版</button>
-                    <button class="edit-btn" onclick="toggleEdit('td_prompt_{{ loop.index0 }}', this)" id="edit_td_prompt_{{ loop.index0 }}">修改提示词</button>
-                    <button class="save-btn" onclick="savePrompt('td_prompt_{{ loop.index0 }}', this)" id="save_td_prompt_{{ loop.index0 }}" style="display:none;">保存修改</button>
-                    <span class="version-info" id="ver_td_prompt_{{ loop.index0 }}"></span>
+                    <div class="prompt-label">全景版 · GPT-Image-2</div>
+                    <div class="prompt-block" id="wg_prompt_{{ loop.index0 }}">{{ scene.wide_shot_gpt or '无' }}</div>
+                    <button class="copy-btn" onclick="copyPrompt('wg_prompt_{{ loop.index0 }}', this)">复制</button>
+                    <button class="edit-btn" onclick="toggleEdit('wg_prompt_{{ loop.index0 }}', this)" id="edit_wg_prompt_{{ loop.index0 }}">修改提示词</button>
+                    <button class="save-btn" onclick="savePrompt('wg_prompt_{{ loop.index0 }}', this)" id="save_wg_prompt_{{ loop.index0 }}" style="display:none;">保存修改</button>
+                    <span class="version-info" id="ver_wg_prompt_{{ loop.index0 }}"></span>
                 </div>
+
+                <div class="prompt-pair">
+                    <div class="prompt-label">俯视图版 · GPT-Image-2</div>
+                    <div class="prompt-block" id="tg_prompt_{{ loop.index0 }}">{{ scene.topdown_gpt or '无' }}</div>
+                    <button class="copy-btn" onclick="copyPrompt('tg_prompt_{{ loop.index0 }}', this)">复制</button>
+                    <button class="edit-btn" onclick="toggleEdit('tg_prompt_{{ loop.index0 }}', this)" id="edit_tg_prompt_{{ loop.index0 }}">修改提示词</button>
+                    <button class="save-btn" onclick="savePrompt('tg_prompt_{{ loop.index0 }}', this)" id="save_tg_prompt_{{ loop.index0 }}" style="display:none;">保存修改</button>
+                    <span class="version-info" id="ver_tg_prompt_{{ loop.index0 }}"></span>
+                </div>
+                {% if scene.multi_panel_gpt %}
+                <div class="prompt-pair">
+                    <div class="prompt-label">多面板布局参考图 · GPT-Image-2</div>
+                    <div class="prompt-block" id="mp_prompt_{{ loop.index0 }}">{{ scene.multi_panel_gpt }}</div>
+                    <button class="copy-btn" onclick="copyPrompt('mp_prompt_{{ loop.index0 }}', this)">复制</button>
+                    <button class="edit-btn" onclick="toggleEdit('mp_prompt_{{ loop.index0 }}', this)" id="edit_mp_prompt_{{ loop.index0 }}">修改提示词</button>
+                    <button class="save-btn" onclick="savePrompt('mp_prompt_{{ loop.index0 }}', this)" id="save_mp_prompt_{{ loop.index0 }}" style="display:none;">保存修改</button>
+                    <span class="version-info" id="ver_mp_prompt_{{ loop.index0 }}"></span>
+                </div>
+                {% endif %}
             </div>
         </div>
         {% endfor %}
