@@ -2,7 +2,7 @@
 场景拆解 - Scene_Extraction_Skills_v5.2
 两轮提取：第一轮识别场次，第二轮生成细节
 """
-# (C) foxpaw
+# (C) foxpaw, 2026-07-15
 
 import re
 
@@ -48,33 +48,18 @@ DETAIL_SYSTEM = """你是Nano Banana 2 Pro + GPT-Image-2双模型实拍空镜提
 4. 实拍电影质感——严禁3D渲染/CGI/游戏/卡通/动画
 5. 仅中文输出
 
-双模型提示词格式指引：
-【GPT-Image-2版 — 全景版】五段式结构：场景描述/主体聚焦/重要细节/用途类型/约束条件。用视觉事实替换赞美词。每段内容必须从场景信息卡中提取对应数据——空间类型、材质、道具、光影方案、氛围等。
-【GPT-Image-2版 — 多面板布局版】固定四段式结构，第一段格式严禁改动（仅替换...部分），如下模板：
-多面板 {场景名称}内概念设计稿，{场所/环境}的多视角呈现，顶部为 {具体区域/角度}主广角全景，中间行为 {内景分区1}、{内景分区2}、{细节物件类别}细节的小缩略图，底部为{整体空间}纵览大图，附带{特写物件1}、{特写物件2}、{特写物件3}特写细节插图，{场景类型}环境设计，影视美术设计拆解，清晰的分镜排版
-
-场景与物件
-{十层数据中空间骨架 + 材质 + 陈设道具 + 标识 的自然语言整合，描述场景中所有物件的状态、材质、排列关系}
-
-光影与色调
-{光源位置+色温+实拍氛围+光影方案的完整自然语言描述}
-
-画质与风格
-超写实，超高细节，写实3D渲染，精细的环境细节，真实的材质纹理（{列出2-3种代表性材质}），8k，高分辨率，电影级构图，Artstation热门风格，大师级概念艺术，影视美术设计，物理基于渲染
-
-场景信息卡（表格格式）包含场景的核心数据：空间类型、材质清单、陈设道具、光影方案、氛围基调、提取依据、微气候、实拍参数等。这些数据必须在生成全景版、俯视图版、多面板版提示词时作为原材料融入——不是简单拼接，而是在提示词的各段落中自然地体现信息卡中的具体细节。
+提示词必须严格遵循下方知识库规范中定义的十层描述法、光影方案、画质标准和输出模板，不得省略任何要素。
 
 输出格式必须是包裹在 {"scenes":[...]} 中的JSON对象，不能是裸数组：
 
 {"scenes":[
-  {"scene_number":1,"title":"场景名","episode":"第X集","time":"时间","location":"地点","scene_type":"内景/外景","characters":["角色"],"props":["道具"],"category":"S/A/B/C级","synopsis":"概要","dramatic_function":"戏剧功能","mood":"氛围","emotion_tags":"情绪标签","lighting_scheme":"N1-N9光照方案ID","estimated_duration":"时长","scene_info_card":"| 项目 | 内容 |\n|------|------|\n| 空间类型 | ... |\n| 材质清单 | ... |\n| 陈设道具 | ... |\n| 光影方案 | ... |\n| 氛围基调 | ... |\n| 提取依据 | ... |\n| 微气候 | ... |\n| 实拍参数 | ... |","extraction_basis":"提取依据（引用剧本原文）","wide_shot_gpt":"全景版 GPT-Image-2 完整提示词（已融入场景信息卡数据）","grid_nine_gpt":"九宫格剧情参考图 GPT-Image-2 完整提示词（已融入场景信息卡数据）","multi_panel_gpt":"多面板布局参考图 GPT-Image-2 完整提示词（已融入场景信息卡数据）","urban_microclimate":"城市微气候描述","general_params":"通用实拍主参数"}
+  {"scene_number":1,"title":"场景名","episode":"第X集","time":"时间","location":"地点","scene_type":"内景/外景","characters":["角色"],"props":["道具"],"category":"S/A/B/C级","synopsis":"概要","dramatic_function":"戏剧功能","mood":"氛围","emotion_tags":"情绪标签","lighting_scheme":"N1-N9光照方案ID","estimated_duration":"时长","scene_info_card":"| 项目 | 内容 |\n|------|------|\n| 空间类型 | ... |\n| 材质清单 | ... |\n| 陈设道具 | ... |\n| 光影方案 | ... |\n| 氛围基调 | ... |\n| 提取依据 | ... |\n| 微气候 | ... |\n| 实拍参数 | ... |","extraction_basis":"提取依据（引用剧本原文）","wide_shot_gpt":"全景版 GPT-Image-2 完整提示词（已融入场景信息卡数据）","topdown_gpt":"俯视图版 GPT-Image-2 完整提示词（已融入场景信息卡数据）","multi_panel_gpt":"多面板布局参考图 GPT-Image-2 完整提示词（已融入场景信息卡数据）"}
 ],
 "total_count":0,
 "summary":"概述"}
 
 重要：输出最外层是 {"scenes":[...],"total_count":N,"summary":"..."}，绝对不能是裸数组 [...]。
-每个场景必须包含上述全部字段。
-自检：每个场景是否都有完整提示词？全景版是否用五段式？多面板版是否用四段式结构？"""
+每个场景必须包含上述全部字段。"""
 
 DETAIL_SYSTEM = (DETAIL_SYSTEM + "\n\n---\n\n" + _KB_CONTENT) if _KB_CONTENT else DETAIL_SYSTEM
 
@@ -301,7 +286,7 @@ def build_multipanel_prompt(script_text, existing_result, context=None, temp_kb=
         general = s.get('general_params', '')[:200]
         extraction = s.get('extraction_basis', '')[:150]
         wide = (s.get('wide_shot_gpt', '') or '')[:200]
-        grid_nine = (s.get('grid_nine_gpt', '') or '')[:200]
+        topdown = (s.get('topdown_gpt', '') or '')[:200]
         parts = [
             '[场景{0}] {1}'.format(sn, title),
             '  类型: {0} | 地点: {1}'.format(scene_type, location),
@@ -311,7 +296,7 @@ def build_multipanel_prompt(script_text, existing_result, context=None, temp_kb=
             '  提取依据: ' + extraction,
             '  信息卡: ' + info_card,
             '  全景版摘要: ' + wide,
-            '  九宫格版摘要: ' + grid_nine,
+            '  俯视图版摘要: ' + topdown,
         ]
         scene_summaries.append('\n'.join(parts))
     
@@ -367,137 +352,74 @@ def parse_multipanel_result(raw_text, existing_result):
     return result
 
 
-# ===== 九宫格剧情参考图（grid_nine_gpt）=====
+# ===== 俯视图版（topdown_gpt）=====
 
-GRID_NINE_SYSTEM = """你是GPT-Image-2实拍电影九宫格剧情板设计工程师。已有场景的分镜数据（含完整action描述、角色站位、台词、情绪），需要为每个场景设计九宫格剧情参考图提示词。
-
-⚠️ 九宫格是剧情板（storyboard），不是场景设计板。每格画面展示的是「角色在演什么戏」，而非「场景长什么样」。场景只是背景，人物和剧情才是主体。
+TOPDOWN_SYSTEM = """你是GPT-Image-2实拍电影场景俯视图设计师。已有场景的全景版提示词和场景信息卡，需要为每个场景设计一张【俯视平面布局图提示词】。
 
 核心规则：
-1. 9个格子必须按剧情时间顺序排列：1-1（开场）→ 1-2 → 1-3 → 2-1 → ... → 3-3（收尾）
-2. 所有格子使用正常拍摄视角（平视/中近景），不使用俯视或鸟瞰
-3. 【硬性要求】每格画面中至少有一个角色，必须有明确的动作或表情——禁止出现纯空镜/纯场景的格子
-4. 角色站位必须和下方提供的分镜提示词保持一致——左侧就是左侧、右侧就是右侧
-5. 每格画面描述要融入：景别 + 角色站位方向 + 谁在做什么动作/什么表情 + @标记，把这一格的剧情张力写出来
-6. 提示词必须有assets字段（@标记），且与每格画面中的@标记一一对应
-7. 纯中文输出，实拍电影质感
+1. 严格空镜——不含任何人物/人体/服装/动物
+2. 上帝视角——正上方俯拍，展示完整的空间平面布局
+3. 从已有的全景版提示词和场景信息卡中提取空间结构信息
+4. 实拍电影质感，禁止3D渲染/CGI/游戏/卡通
+5. 仅中文输出
 
-四段式提示词结构：
-第一段（九宫格排版描述）：
-九宫格剧情板，{场景名称}，3×3网格从左到右从上到下按时间排列：左上格-{时刻1}...右上格-{时刻3}，中左格-{时刻4}...中右格-{时刻6}，下左格-{时刻7}...下右格-{时刻9}，{场景类型}实拍电影，清晰分镜排版，画面以人物为主体
+提示词格式（连续文本）：
+俯视图，{场景名称}，{空间类型}的上帝视角平面布局，显示所有关键区域的空间关系和尺寸比例，{主要房间/区域}在画面的{位置}，{家具/道具}的摆放位置和相对尺度，清晰的动线示意，{光影方案}从上方均匀投射，{材质}的地面和墙面纹理可见，超写实，超高细节，真实的材质纹理（列出2-3种代表性材质），8k，高分辨率，建筑表现图风格，电影级构图。
 
-第二段（每格画面描述）：
-逐格描述——每格必须包含：角色是谁、在什么位置、做什么动作/什么表情、面向谁。场景作为角色身后的背景交代，不是主体。
-
-第三段（光影与色调）：
-统一的光影方案，保证9格视觉一致性
-
-第四段（画质与风格）：
-超写实，超高细节，实拍电影质感，真实的材质纹理，8k，高分辨率，电影级构图
-
-输出格式：
-{"scenes":[
-  {"scene_number":1,"assets":"@角色A。@角色B。@场景名","cells":[
-    {"pos":"1-1","moment":"开场对峙","action":"中近景，画面左侧@A双手撑桌身体前倾怒视，画面右侧@B背靠门框双臂交叉冷冷回看——对峙张力拉满"},
-    ...9格...
-  ],
-  "grid_prompt":"九宫格剧情板，{场景名}，..."}
-]}
-
-重要：外层必须是 {"scenes":[...]}，不能是裸数组。为下方列出的每一个场景生成 grid_nine_gpt，一个不能少。"""
+输出格式：为下方列出的每一个场景生成 topdown_gpt，一个不能少。
+{scenes:[{scene_number:1,topdown_gpt:俯视图提示词},...]}"""
 
 
-def build_grid_nine_prompt(script_text, shots_data, scenes_data, context=None, temp_kb=None):
-    """构建九宫格提示词：从分镜数据中提取关键镜头信息"""
-    import json
-    
+def build_topdown_prompt(script_text, scenes_data, context=None, temp_kb=None):
+    """构建俯视图提示词：从场景数据中提取空间结构信息"""
     scene_summaries = []
-    # 从分镜数据中提取每个场景的关键镜头
-    shots_scenes = shots_data.get('scenes', [])
     
-    for scene in shots_scenes:
+    for scene in (scenes_data.get('scenes', []) or []):
         sn = scene.get('scene_number', '?')
-        title = scene.get('scene_title', '')
-        shot_list = scene.get('shots', [])
+        title = scene.get('title', '')
+        info = scene.get('scene_info_card', '')[:400]
+        wide = scene.get('wide_shot_gpt', '')[:300]
+        lighting = scene.get('lighting_scheme', '')
+        scene_type = scene.get('scene_type', '')
+        props = ', '.join(scene.get('props', [])[:8])
         
-        parts = [f'[场景{sn}] {title}']
-        
-        # 提取分镜中的关键信息：完整action描述、角色站位、台词、情绪
-        for shot in shot_list[:9]:  # 最多取前9镜
-            sid = shot.get('shot_id', '?')
-            assets = shot.get('assets', '')
-            emotion = shot.get('emotion', '')
-            intensity = shot.get('intensity', '')
-            dialogue = shot.get('dialogue', '')
-            camera = shot.get('camera', '')
-            # 拼接完整timeline摘要
-            timeline = shot.get('timeline', [])
-            action_summary = []
-            for t in timeline:
-                if isinstance(t, dict):
-                    tr = t.get('time_range', '')
-                    act = t.get('action', '')
-                    if act:
-                        action_summary.append(f'{tr}: {act[:150]}')
-            parts.append(f'  分镜{sid}: assets={assets} | 情绪={emotion}({intensity}) | 镜头={camera}')
-            if dialogue:
-                parts.append(f'    台词: {dialogue[:100]}')
-            for a in action_summary:
-                parts.append(f'    {a}')
-        
-        # 补充场景信息卡
-        for s in (scenes_data.get('scenes', []) or []):
-            if s.get('scene_number') == sn:
-                parts.append(f'  场景信息: {s.get("scene_info_card", "")[:200]}')
-                parts.append(f'  光影方案: {s.get("lighting_scheme", "")}')
-                break
-        
-        scene_summaries.append('\n'.join(parts))
+        scene_summaries.append(
+            '[场景{}] {} | {}\n'
+            '  全景摘要: {}\n'
+            '  场景信息卡: {}\n'
+            '  光影方案: {}\n'
+            '  道具: {}'.format(sn, title, scene_type, wide, info, lighting, props)
+        )
     
     summary_text = '\n'.join(scene_summaries)
     
-    # 构建角色列表
-    char_names = []
-    if context:
-        chars = context.get('characters', {})
-        if isinstance(chars, dict):
-            for c in chars.get('characters', []):
-                n = c.get('name', '')
-                if n:
-                    char_names.append(n)
-    
     user_prompt = (
         '剧本原文：\n' + script_text + '\n\n'
-        '分镜数据（从中提取关键剧情时刻和角色站位）：\n'
+        '场景数据（从中提取空间结构信息）：\n'
         + summary_text + '\n\n'
-        '出场角色：' + '、'.join(char_names) + '\n\n'
-        '为以上每个场景生成【九宫格剧情参考图提示词】（grid_nine_gpt）。\n'
+        '为以上每个场景生成【俯视图提示词】（topdown_gpt）。\n'
         '要求：\n'
-        '1. 从分镜数据中提取9个关键剧情时刻，按时序排列\n'
-        '2. 角色站位必须和分镜action中的描述保持一致\n'
-        '3. assets字段列出所有@角色和@场景，与每格画面中的@标记一一对应\n'
-        '4. 使用正常拍摄视角，纯中文输出，实拍电影质感'
+        '1. 从场景信息卡和全景版提示词中提取空间骨架、材质、道具摆放\n'
+        '2. 描述各区域的相对位置和尺度关系\n'
+        '3. 纯中文输出，实拍电影质感，禁止3D渲染/CGI\n'
+        '4. 严格空镜，不出现人物'
     )
     
-    return GRID_NINE_SYSTEM, user_prompt
+    return TOPDOWN_SYSTEM, user_prompt
 
 
-def parse_grid_nine_result(raw_text):
-    """解析九宫格结果"""
+def parse_topdown_result(raw_text):
+    """解析俯视图结果"""
     parsed = BaseExtractor._safe_json_parse_with_fallback(raw_text)
     if parsed is None or not isinstance(parsed, dict):
         return {}
-    
-    grid_map = {}
+    td_map = {}
     new_scenes = parsed.get('scenes', [])
     if isinstance(new_scenes, list):
         for s in new_scenes:
             if isinstance(s, dict):
                 sn = s.get('scene_number')
                 if sn:
-                    grid_map[sn] = {
-                        'assets': s.get('assets', ''),
-                        'cells': s.get('cells', []),
-                        'grid_prompt': s.get('grid_prompt', ''),
-                    }
-    return grid_map
+                    td_map[sn] = s.get('topdown_gpt', '')
+    return td_map
+

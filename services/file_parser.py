@@ -55,8 +55,11 @@ def parse_docx(file_path):
             return text
     except ImportError:
         raise RuntimeError("请在终端运行 pip install mammoth 安装 Word 解析库")
+    except ImportError:
+        raise RuntimeError("请在终端运行 pip install mammoth 安装 Word 解析库")
     except Exception as e:
-        raise RuntimeError(f"Word 解析失败: {str(e)}")
+        import traceback
+        raise RuntimeError(f"Word 解析失败({os.path.basename(file_path)}): {str(e)}")
 
 
 def parse_txt(file_path):

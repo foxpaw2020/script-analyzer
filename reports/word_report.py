@@ -1,7 +1,7 @@
 """
 Word 报告生成 - 按知识库输出规则生成 .docx 报告
 """
-# (C) foxpaw
+# (C) foxpaw, 2026-07-15
 
 
 import os

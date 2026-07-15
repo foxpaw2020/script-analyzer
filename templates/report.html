@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta name="generator" content="foxpaw">
-<!-- (C) foxpaw -->
+<!-- (C) foxpaw, 2026-07-15 -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% if episode_info %}第{{ episode_info.current }}集 {% endif %}剧本拆解报告 - {{ script_name }}</title>
@@ -291,8 +291,8 @@
                 </div>
 
                 <div class="prompt-pair">
-                    <div class="prompt-label">九宫格剧情参考图 · GPT-Image-2</div>
-                    <div class="prompt-block" id="gn_prompt_{{ loop.index0 }}">{{ scene.grid_nine_gpt or '无' }}</div>
+                    <div class="prompt-label">俯视图剧情参考图 · GPT-Image-2</div>
+                    <div class="prompt-block" id="gn_prompt_{{ loop.index0 }}">{{ scene.topdown_gpt or '无' }}</div>
                     <button class="copy-btn" onclick="copyPrompt('gn_prompt_{{ loop.index0 }}', this)">复制</button>
                     <button class="edit-btn" onclick="toggleEdit('gn_prompt_{{ loop.index0 }}', this)" id="edit_gn_prompt_{{ loop.index0 }}">修改提示词</button>
                     <button class="save-btn" onclick="savePrompt('gn_prompt_{{ loop.index0 }}', this)" id="save_gn_prompt_{{ loop.index0 }}" style="display:none;">保存修改</button>

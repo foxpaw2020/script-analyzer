@@ -19,7 +19,7 @@
     "no_cg_animation": "严格禁止3D渲染、CGI特效、游戏引擎、卡通渲染、手绘插画、皮克斯风格、赛璐珞着色、Blender/Unity/Maya渲染质感",
     "no_characters": "严格空镜，不出现任何角色、人体部位、服装或人物动作",
     "mandatory_text": "剧本中的路牌、门牌、广告、标识等必须完整体现在提示词中",
-    "dual_version": "每场场景必须生成两个版本：全景版（Wide Shot）和俯视图版（Top-down View）",
+    "dual_version": "每场场景必须生成三个版本：全景版（Wide Shot GPT-Image-2）、俯视图版（Top-down View GPT-Image-2）、多面板布局参考图（多面板 GPT-Image-2）",
     "ten_layers": "所有场景统一采用十层完整描述，不分级简化",
     "language": "所有提示词及描述仅使用中文，不再输出英文版本",
     "negative_prompt_prefix": "在最终提示词末尾，必须明确标注'反向提示词（画面中不要出现）：'及相应内容",

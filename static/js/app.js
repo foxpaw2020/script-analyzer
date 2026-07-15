@@ -2,7 +2,7 @@
  * 剧本拆解大师 v2.52 - 前端主逻辑
  */
 
-//  (C) foxpaw
+//  (C) foxpaw, 2026-07-15
 
 (function() {
     'use strict';

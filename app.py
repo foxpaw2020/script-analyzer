@@ -2,7 +2,7 @@
 剧本拆解大师v2.52版 - Flask Web 应用
 支持上传/粘贴剧本，通过 AI 进行角色、道具、场景、分镜四步提取
 """
-# (C) foxpaw
+# (C) foxpaw, 2026-07-15
 
 
 import os
@@ -35,6 +35,58 @@ from asset_audit.html_builder import build_summary_html
 from utils.sse import json_sse
 from reports.word_report import generate_word_report
 from reports.html_report import generate_html_report
+
+
+# 道具提示词固定前段（代码拼接，AI不输出）
+PROPS_PROMPT_PREFIX = (
+    '道具设计图，三视图展示(正面视图、侧面视图、俯视俯拍)+超特写纹理细节，'
+    '纯白背景，产品摄影风格，'
+)
+
+# 道具提示词固定后段（代码拼接，AI不输出，确保永不遗漏）
+PROPS_PROMPT_SUFFIX = (
+    'Netflix剧集级道具摄影质感，Arri Alexa摄影机拍摄，HDR高动态范围影像，'
+    '精致色彩分级，画面通透干净，亮部细节丰富，暗部层次清晰，柔和对比度，'
+    '电影级构图，真实物理材质呈现。 写实超写实质感，真实物理材质与表面纹理，'
+    '自然使用痕迹与磨损，真实物理光影，8K超高清，极致细腻真实纹理，'
+    '无损高清画质，锐利真实细节。 材质统一一致，各视角相同纹理，'
+    '相同配色，各视图比例一致，年代风格统一，磨损程度一致，文字标识一致。 '
+    '不要出现：AI生成质感，3D渲染质感，CGI特效感，游戏引擎画面，卡通渲染，'
+    '手绘插画，动画风格，皮克斯风格，塑料/蜡质/瓷娃娃质感，光滑完美无瑕疵的CG材质，'
+    '无使用痕迹的完美表面，美颜滤镜，磨皮过度，过度锐化，数字平滑感，过度干净渲染，'
+    '高光油腻，非自然均匀光照，合成光照，非自然调色，卡通色彩，纹理重复，'
+    '漂浮镜头，机械相机运动，完美稳定，人工帧插值，超真实渲染，非自然锐利边缘。'
+)
+
+# 人物提示词固定前段（代码拼接，AI不输出）
+CHARACTER_PROMPT_PREFIX = (
+    '画面左侧是人物正面锁骨以上全脸特写+画面右侧是人物三视图'
+    '(正面视角、正侧面视角、背面视角)，全身站立姿态，双手自然下垂，表情自然，'
+)
+
+# 人物提示词固定后段（代码拼接，AI不输出，确保永不遗漏）
+CHARACTER_PROMPT_SUFFIX = (
+    'realistic skin texture with visible pores, subtle natural skin oil, '
+    'realistic subsurface scattering, fine facial details, naturally backlit peach fuzz, '
+    'authentic skin imperfections, cinematic realism, organic rendering。 '
+    'Netflix剧集级角色肖像质感，Arri Alexa摄影机拍摄，HDR高动态范围影像，'
+    '精致色彩分级，画面通透干净，亮部细节丰富不死白，暗部层次清晰不死黑，'
+    '柔和对比度，均匀自然曝光，4K/8K超高清分辨率，电影级构图，自然肤色还原。 '
+    '写实超写实质感，真实物理材质与皮肤纹理，自然瑕疵与使用痕迹，'
+    '真实物理光影，极致细腻真实纹理，浅景深虚化背景，立体空间纵深感，'
+    '浓厚叙事氛围感，无损高清画质，锐利真实细节。 '
+    '同一个人物角色，面部特征统一一致，全程穿着同一套服装，服装细节完全相同，'
+    '相同体型，体格特征一致，保持相同年龄面貌，发型一致，发色统一，文字标识一致。 '
+    '反向提示词：不要出现AI生成面孔，CGI质感，游戏引擎画面，塑料/蜡质皮肤，'
+    '瓷娃娃皮肤，美颜滤镜，磨皮过度，过度锐化，数字平滑感，过度干净渲染，'
+    '高光油腻，非自然面部比例，完美对称，合成光照，均匀光照，非自然眼部反光，'
+    '虚假景深，人工电影模糊，非自然调色，卡通色彩，纹理重复，漂浮镜头，'
+    '机械相机运动，完美稳定，人工帧插值，超真实渲染，非自然锐利边缘。'
+)
+
+
+# API 配置参数键列表（统一引用，避免重复定义）
+API_CONFIG_KEYS = ["provider", "api_key", "model", "base_url", "temperature", "top_p", "frequency_penalty", "presence_penalty", "max_tokens", "thinking"]
 
 app = Flask(__name__,
     static_folder=os.path.join(get_base_path(), 'static'),
@@ -208,8 +260,8 @@ def _load_progress(script_name):
         if os.path.isfile(pp):
             with open(pp, 'r', encoding='utf-8') as f:
                 return json.load(f)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("进度文件读取失败: %s", str(e), exc_info=True)
     return None
 
 
@@ -221,8 +273,8 @@ def _save_progress(script_name, progress_data):
         progress_data['updated_at'] = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         with open(pp, 'w', encoding='utf-8') as f:
             json.dump(progress_data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("进度文件保存失败: %s", str(e), exc_info=True)
 
 
 def _init_progress(script_name, episodes, selected_eps=None):
@@ -322,12 +374,15 @@ def _get_completed_steps(script_name, episode_label):
 
 
 
-def _call_ai_retry(sys_p, user_p, api_config, step_label, max_retries=5):
+def _call_ai_retry(sys_p, user_p, api_config, step_label, max_retries=2, temp=None):
     """Call AI with retry. Returns (result, None) on success, (None, error_msg) on final failure."""
+    cfg = {**api_config} if temp is not None else api_config
+    if temp is not None:
+        cfg['temperature'] = str(temp)
     last_error = None
     for attempt in range(max_retries):
         try:
-            result = call_ai(sys_p, user_p, api_config)
+            result = call_ai(sys_p, user_p, cfg)
             return result, None
         except Exception as e:
             last_error = str(e)
@@ -340,15 +395,6 @@ def _call_ai_retry(sys_p, user_p, api_config, step_label, max_retries=5):
 # 路由
 # ============================================================
 
-def _require_auth():
-    """可选的 API 认证 — 通过环境变量 AUTH_TOKEN 启用"""
-    token = os.environ.get('AUTH_TOKEN', '')
-    if not token:
-        return True  # 未配置则不启用认证
-    auth_header = request.headers.get('Authorization', '')
-    if auth_header == f'Bearer {token}':
-        return True
-    return False
 
 @app.route('/')
 def index():
@@ -487,6 +533,17 @@ def check_connection():
             return jsonify({"success": False, "message": f"无法连接到 {url}"})
         except Exception as e:
             return jsonify({"success": False, "message": str(e)})
+
+
+def _require_auth():
+    """可选的 API 认证 — 通过环境变量 AUTH_TOKEN 启用"""
+    token = os.environ.get('AUTH_TOKEN', '')
+    if not token:
+        return True  # 未配置则不启用认证
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header == f'Bearer {token}':
+        return True
+    return False
 
 
 @app.route('/api/analyze', methods=['POST'])
@@ -683,7 +740,7 @@ def analyze():
                     logging.warning("prior_results 解析失败，跳过", exc_info=True)
             
             # 预分块：长剧本切成小块用于第一轮扫描
-            CHUNK_SIZE = 4000
+            CHUNK_SIZE = 4000  # 约1000个中文字符，平衡分块粒度与AI上下文质量
             script_chunks = []
             if len(script_text) > CHUNK_SIZE:
                 paragraphs = script_text.split('\n\n')
@@ -709,19 +766,16 @@ def analyze():
             if (not step_filter or step_filter == 'characters') and 'characters' not in completed_steps:
                 if ep_subdir:
                     _update_episode_step(script_name, ep_subdir, 'characters', 'processing')
-                yield json_sse("progress", {"step": "characters", "status": "processing", "label": "角色提取", "message": f"第一轮：分{len(script_chunks)}块扫描角色名..."})
+                yield json_sse("progress", {"step": "characters", "status": "processing", "label": "角色提取", "message": "第一轮：全剧本扫描角色名..."})
                 try:
-                    all_names = set()
-                    for i, chunk in enumerate(script_chunks):
-                        if len(script_chunks) > 1:
-                            yield json_sse("progress", {"step": "characters", "status": "processing", "label": "角色提取", "message": f"扫描第{i+1}/{len(script_chunks)}段..."})
-                        sys_p, user_p = characters.build_list_prompt(chunk)
-                        raw, retry_err = _call_ai_retry(sys_p, user_p, api_config, '角色提取', max_retries=3)
-                        if retry_err:
-                            yield json_sse('pause', {'step': 'characters', 'message': retry_err, 'data': {'results': results}})
-                            return
-                        names = characters.parse_list(raw)
-                        all_names.update(names)
+                    # 全剧本一次发送，利用 DeepSeek V4 1M 上下文，避免分块撕裂角色信息
+                    sys_p, user_p = characters.build_list_prompt(script_text)
+                    raw, retry_err = _call_ai_retry(sys_p, user_p, api_config, '角色提取', max_retries=3, temp=0)
+                    if retry_err:
+                        yield json_sse('pause', {'step': 'characters', 'message': retry_err, 'data': {'results': results}})
+                        return
+                    names = characters.parse_list(raw)
+                    all_names = set(names)
                     
                     char_names = sorted(all_names)
                     if not char_names:
@@ -734,6 +788,9 @@ def analyze():
                         yield json_sse('pause', {'step': 'characters', 'message': retry_err, 'data': {'results': results}})
                         return
                     result = characters.parse_result(raw)
+                    for c in result.get('characters', []):
+                        if c.get('prompt'):
+                            c['prompt'] = CHARACTER_PROMPT_PREFIX + c['prompt'] + CHARACTER_PROMPT_SUFFIX
                     results['characters'] = result
                     cc = len(result.get('characters', []))
                     if cc == 0:
@@ -766,7 +823,7 @@ def analyze():
                 # 检测集数：单集无频率限制，多集要求≥2场
                 eps = split_script_by_episodes(script_text)
                 ep_count = len(eps) if eps else 0
-                min_freq = 1 if ep_count <= 1 else 2
+                min_freq = 1
                 freq_hint = "单集模式：提取全部道具" if min_freq <= 1 else f"多集模式（{ep_count}集）：仅提取≥2场道具"
                 yield json_sse("progress", {"step": "props", "status": "processing", "label": "道具提取", "message": f"第一轮：扫描全剧本道具名（{freq_hint}）..."})
                 try:
@@ -775,7 +832,7 @@ def analyze():
                         sys_p, user_p = props.build_list_prompt(script_text, min_appearances=min_freq)
                         if attempt > 0:
                             user_p = "（重试，请务必列出所有道具名称）\n" + user_p
-                        raw, retry_err = _call_ai_retry(sys_p, user_p, api_config, '道具提取' + ('(重试)' if attempt > 0 else ''), max_retries=3)
+                        raw, retry_err = _call_ai_retry(sys_p, user_p, api_config, '道具提取' + ('(重试)' if attempt > 0 else ''), max_retries=3, temp=0)
                         if retry_err:
                             # already retried at _call_ai_retry level, give up
                             pass
@@ -800,6 +857,10 @@ def analyze():
                             yield json_sse('pause', {'step': 'props', 'message': pretry_err, 'data': {'results': results}})
                             return
                         result = props.parse_result(raw)
+                        # 代码拼接固定后段，AI只输出变量部分
+                        for p in result.get('props', []):
+                            if p.get('prompt'):
+                                p['prompt'] = PROPS_PROMPT_PREFIX + p['prompt'] + PROPS_PROMPT_SUFFIX
                         results['props'] = result
                         pc = len(result.get('props', []))
                         if pc == 0:
@@ -827,7 +888,7 @@ def analyze():
                 yield json_sse("progress", {"step": "scenes", "status": "processing", "label": "场景拆解", "message": "第一轮：识别所有场景场次..."})
                 try:
                     sys_p, user_p = scenes.build_list_prompt(script_text)
-                    raw, sretry_err = _call_ai_retry(sys_p, user_p, api_config, '场景拆解', max_retries=3)
+                    raw, sretry_err = _call_ai_retry(sys_p, user_p, api_config, '场景拆解', max_retries=3, temp=0)
                     if sretry_err:
                         yield json_sse('pause', {'step': 'scenes', 'message': sretry_err, 'data': {'results': results}})
                         return
@@ -957,8 +1018,8 @@ def analyze():
                                         et_sys, et_user = emotion_timeline.build_prompt(batch_text, char_names, scene_list)
                                         et_raw, _ = _call_ai_retry(et_sys, et_user, api_config, '情绪时间线', max_retries=2)
                                         et_data = emotion_timeline.parse_result(et_raw)
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    logging.warning("情绪时间线分析失败: %s", str(e), exc_info=True)
                                 sys_p, user_p = shots.build_detail_prompt(batch_text, shot_plan, results, style=breakdown_style, emotion_timeline=et_data)
                                 if prev_tail:
                                     user_p += f"\n\n【上下文衔接】上一批剧情结束于：{prev_tail}。请确保本批首批分镜从该状态自然接续。"
@@ -1089,8 +1150,8 @@ def analyze():
                                 et_sys, et_user = emotion_timeline.build_prompt(script_text, char_names, scene_list)
                                 et_raw, _ = _call_ai_retry(et_sys, et_user, api_config, '情绪时间线', max_retries=3)
                                 et_data = emotion_timeline.parse_result(et_raw)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logging.warning("情绪时间线分析失败: %s", str(e), exc_info=True)
                         sys_p, user_p = shots.build_detail_prompt(script_text, shot_plan, results, style=breakdown_style, emotion_timeline=et_data)
                         raw, _ = _call_ai_retry(sys_p, user_p, shots_api_config, '分镜拆解详情', max_retries=3)
                         result = shots.parse_result(raw)
@@ -1154,8 +1215,8 @@ def analyze():
                         pptx_path = _output_path(script_name, pptx_name, ep_subdir) if ep_subdir else os.path.join(os.path.dirname(html_path), pptx_name)
                         build_episode_pptx(assets, script_name, ep_num, pptx_path)
                         pptx_file = os.path.basename(pptx_path)
-                    except Exception:
-                        pass  # PPTX is optional
+                    except Exception as e:
+                        logging.warning("PPTX 生成失败(非致命): %s", str(e), exc_info=True)
                     
                     # 标记完成 + 批量模式：删除中间分步文件
                     if ep_subdir:
@@ -1296,7 +1357,10 @@ def parse_file():
             "total_episodes": len(episode_markers)
         })
     except Exception as e:
-        return jsonify({"error": f"文件解析失败: {str(e)}"}), 500
+        import traceback
+        err_detail = str(e)
+        logging.getLogger("app").error("文件解析失败 [%s]: %s\n%s", ext, err_detail, traceback.format_exc())
+        return jsonify({"error": f"{ext} 文件解析失败: {err_detail}"}), 500
     finally:
         try:
             os.remove(tmp_path)
@@ -1661,7 +1725,7 @@ def asset_audit():
                         break
                     except Exception as ex:
                         if retry == 0:
-                            import time; time.sleep(2)
+                            time.sleep(2)
                         else:
                             assets = {"characters":[],"props":[],"scenes":[],"error":str(ex)}
                 all_assets.append(assets)

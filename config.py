@@ -45,7 +45,7 @@ OPENAI_MODEL = "gpt-4o"
 
 # 模型参数（种子固定保证输出可复现）
 SEED = 8012
-MAX_TOKENS = 131072  # 128K 安全默认，界面可按需调高至 DeepSeek V4 最大输出 384K
+MAX_TOKENS = 200000  # 200K 安全默认，DeepSeek V4 最大输出 384K，界面可按需调高
 CONTEXT_LENGTH = 1000000  # 上下文窗口 1M
 
 DEEPSEEK_KNOWN_MODELS = [

@@ -1,7 +1,7 @@
 """
 AI API 调用服务 - 支持 Ollama 和 OpenAI 兼容接口（策略模式）
 """
-# (C) foxpaw
+# (C) foxpaw, 2026-07-15
 
 
 import time

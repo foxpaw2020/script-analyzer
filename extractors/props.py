@@ -1,7 +1,7 @@
 """
 道具提取 - 两轮提取：第一轮列清单，第二轮生成细节
 """
-# (C) foxpaw
+# (C) foxpaw, 2026-07-15
 
 from .base import BaseExtractor
 
@@ -42,11 +42,10 @@ DETAIL_SYSTEM = """你是好莱坞工业级道具资产提取与提示词工程�
 
 必须处理的道具名单（在用户消息中提供）：你只能处理这些道具，不得增减。每个道具都必须生成完整信息卡和提示词。
 
-提示词格式（连续文本）：
-道具设计图，三视图展示(正面视图、侧面视图、俯视俯拍)+超特写纹理细节，纯白背景，产品摄影风格。 [道具名称]，[材质]，[颜色]，[年代]，[状态]。 [表面纹理磨损]。 [文字标识含位置]。 Netflix剧集级道具摄影质感，Arri Alexa摄影机拍摄，HDR高动态范围影像，精致色彩分级，画面通透干净，亮部细节丰富，暗部层次清晰，柔和对比度，电影级构图，真实物理材质呈现。 电影级道具摄影质感，写实超写实质感，真实物理材质与表面纹理，自然使用痕迹与磨损，真实物理光影，8K超高清，极致细腻真实纹理，无损高清画质，锐利真实细节。 材质统一一致，各视角相同纹理，相同配色，各视图比例一致，年代风格统一，磨损程度一致，文字标识一致。 不要出现：AI生成质感，3D渲染质感，CGI特效感，游戏引擎画面，卡通渲染，手绘插画，动画风格，皮克斯风格，塑料/蜡质/瓷娃娃质感，光滑完美无瑕疵的CG材质，无使用痕迹的完美表面，美颜滤镜，磨皮过度，过度锐化，数字平滑感，过度干净渲染，过度HDR，高光油腻，非自然均匀光照，合成光照，非自然调色，卡通色彩，纹理重复，漂浮镜头，机械相机运动，完美稳定，人工帧插值，超真实渲染，非自然锐利边缘。
+提示词必须严格遵循下方知识库规范中定义的视觉结构、画质标准、平台风格、一致性要求和反向提示词，不得省略任何要素。
 
 输出JSON（必须包含列表中所有道具）：
-{"props":[{"name":"道具名","category":"A/B/C/D类","importance":"重要性","episodes":"第X集","description":"描述","usage":"用途","quantity":2,"frequency":3,"material":"材质","color":"颜色","period_era":"年代","condition":"状态","text_signage":"文字标识","associated_characters":["角色"],"info_card":"道具信息卡","prompt":"连续纯文本提示词"}],"total_count":0,"platform":"Netflix","summary":"仅统计>=2场道具"}"""
+{"props":[{"name":"道具名","category":"A/B/C/D类","importance":"重要性","episodes":"第X集","description":"描述","usage":"用途","quantity":2,"frequency":3,"material":"材质","color":"颜色","period_era":"年代","condition":"状态","text_signage":"文字标识","associated_characters":["角色"],"info_card":"道具信息卡","prompt":"连续纯文本提示词"}],"total_count":0,"platform":"Netflix","summary":"全量道具提取"}"""
 
 DETAIL_SYSTEM = (DETAIL_SYSTEM + "\n\n---\n\n" + _KB_CONTENT) if _KB_CONTENT else DETAIL_SYSTEM
 

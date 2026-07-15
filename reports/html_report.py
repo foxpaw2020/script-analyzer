@@ -1,7 +1,7 @@
 """
 HTML 报告生成 - 使用 Jinja2 模板渲染
 """
-# (C) foxpaw
+# (C) foxpaw, 2026-07-15
 
 
 import time

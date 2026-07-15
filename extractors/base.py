@@ -1,5 +1,5 @@
 """Extractors 公共基类 — 共享 JSON 解析逻辑"""
-# (C) foxpaw
+# (C) foxpaw, 2026-07-15
 
 import json, os, re, sys
 
@@ -42,40 +42,44 @@ class BaseExtractor:
         return raw_text[start:]
     
     @staticmethod
+    def _fix_string_content(s):
+        """修复 JSON 字符串内的未转义换行和控制字符"""
+        result = []
+        in_string = False
+        escape = False
+        for ch in s:
+            if escape:
+                result.append(ch)
+                escape = False
+                continue
+            if ch == '\\':
+                result.append(ch)
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                result.append(ch)
+                continue
+            if in_string:
+                if ch in '\n\r':
+                    result.append('\\n')
+                elif ord(ch) < 0x20:
+                    result.append(' ')
+                else:
+                    result.append(ch)
+            else:
+                result.append(ch)
+        return ''.join(result)
+
+    @staticmethod
     def _repair_json(text):
         """激进修复 AI JSON 常见错误"""
         text = re.sub(r'```[a-z]*\s*', '', text)
+        # 在提取 JSON 之前先修复字符串内的换行
+        text = BaseExtractor._fix_string_content(text)
         text = BaseExtractor._extract_json(text)
         text = re.sub(r',\s*([\}\]])', r'\1', text)
         text = re.sub(r'(\d+)([\u4e00-\u9fff]+)(\s*[,\}\]])', r'\1\3', text)
-        def fix_string_content(s):
-            result = []
-            in_string = False
-            escape = False
-            for ch in s:
-                if escape:
-                    result.append(ch)
-                    escape = False
-                    continue
-                if ch == '\\':
-                    result.append(ch)
-                    escape = True
-                    continue
-                if ch == '"':
-                    in_string = not in_string
-                    result.append(ch)
-                    continue
-                if in_string:
-                    if ch in '\n\r':
-                        result.append('\\n')
-                    elif ord(ch) < 0x20:
-                        result.append(' ')
-                    else:
-                        result.append(ch)
-                else:
-                    result.append(ch)
-            return ''.join(result)
-        text = fix_string_content(text)
         return text
 
     @staticmethod
@@ -83,10 +87,10 @@ class BaseExtractor:
         if '{' not in text:
             return text
         start = text.find('{')
-        # Track bracket stack to know what to close
         stack = []
         in_string = False
         escape = False
+        last_comma_outside_string = start
         for i in range(start, len(text)):
             ch = text[i]
             if escape:
@@ -100,6 +104,8 @@ class BaseExtractor:
                 continue
             if in_string:
                 continue
+            if ch == ',':
+                last_comma_outside_string = i
             if ch == '{' or ch == '[':
                 stack.append(ch)
             elif ch == '}' or ch == ']':
@@ -107,20 +113,14 @@ class BaseExtractor:
                     stack.pop()
         if not stack:
             return text
-        # Close in reverse order
         suffix = ''
         for opener in reversed(stack):
             suffix += '}' if opener == '{' else ']'
-        # Clean up trailing partial value
         stripped = text.rstrip()
-        # Always strip trailing comma before closing (JSON forbids trailing commas)
         if stripped.endswith(','):
             stripped = stripped[:-1]
-        # If mid-value, strip back to last comma
-        if not any(stripped.endswith(c) for c in ['{', '[', '"', '}', ']']):
-            last_comma = stripped.rfind(',')
-            if last_comma > start:
-                stripped = stripped[:last_comma]
+        if in_string or not any(stripped.endswith(c) for c in ['{', '[', '"', '}', ']']):
+            stripped = stripped[:last_comma_outside_string]
         return stripped + suffix
 
     @staticmethod
