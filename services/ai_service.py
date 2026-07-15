@@ -4,16 +4,13 @@ AI API 调用服务 - 支持 Ollama 和 OpenAI 兼容接口（策略模式）
 # (C) foxpaw
 
 
-import os
-import json
 import time
-import re
 from abc import ABC, abstractmethod
 
 import requests
 
+from utils.text import safe_float, safe_int
 import config
-
 
 # ============================================================
 # Provider 抽象基类 & 具体实现
@@ -57,8 +54,9 @@ class OllamaProvider(AIProvider):
 
     def build_request(self, model, base_url, system_prompt, user_prompt, api_config):
         url = f"{base_url.rstrip('/')}/api/chat"
-        temperature = float(api_config.get('temperature', 0))
-        max_tok = int(api_config.get('max_tokens', config.MAX_TOKENS))
+        temperature = safe_float(api_config.get('temperature'), 0.7)
+        raw_tok = api_config.get('max_tokens', '')
+        max_tok = safe_int(raw_tok, config.MAX_TOKENS)
         payload = {
             "model": model,
             "messages": [
@@ -91,11 +89,15 @@ class OpenAICompatibleProvider(AIProvider):
     def build_request(self, model, base_url, system_prompt, user_prompt, api_config):
         api_key = api_config.get("api_key", "")
         url = f"{base_url.rstrip('/')}/v1/chat/completions"
-        temperature = float(api_config.get('temperature', 0))
-        top_p = float(api_config.get('top_p', 0.95)) if api_config.get('top_p', '') != '' else None
-        freq_pen = float(api_config.get('frequency_penalty', 0.0)) if api_config.get('frequency_penalty', '') != '' else None
-        pres_pen = float(api_config.get('presence_penalty', 0)) if api_config.get('presence_penalty', '') != '' else None
-        max_tok = int(api_config.get('max_tokens', config.MAX_TOKENS))
+        temperature = safe_float(api_config.get('temperature'), 0.7)
+        raw_tp = api_config.get('top_p', '')
+        top_p = safe_float(raw_tp, None) if raw_tp is not None and str(raw_tp).strip() else None
+        raw_fp = api_config.get('frequency_penalty', '')
+        freq_pen = safe_float(raw_fp, None) if raw_fp is not None and str(raw_fp).strip() else None
+        raw_pp = api_config.get('presence_penalty', '')
+        pres_pen = safe_float(raw_pp, None) if raw_pp is not None and str(raw_pp).strip() else None
+        raw_tok = api_config.get('max_tokens', '')
+        max_tok = safe_int(raw_tok, config.MAX_TOKENS)
         thinking = api_config.get('thinking', '0') == '1'
         payload = {
             "model": model,
@@ -171,7 +173,7 @@ def call_ai(system_prompt, user_prompt, api_config):
     last_error = None
     for retry in range(3):
         try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=120)
+            resp = requests.post(url, json=payload, headers=headers, timeout=int(api_config.get("timeout", 120)))
             resp.raise_for_status()
             return provider.extract_content(resp.json())
         except (ValueError, TypeError) as e:
@@ -206,10 +208,18 @@ def call_ai(system_prompt, user_prompt, api_config):
                 raise RuntimeError(
                     f"{provider.name} API 错误: {e.response.status_code} - {e.response.text[:200]}"
                 )
+        except requests.exceptions.RequestException as e:
+            # 其他请求级异常（SSLError、ChunkedEncodingError 等）也重试
+            last_error = e
+            if retry < 2:
+                time.sleep(2 ** retry)
+                continue
         except Exception as e:
             raise RuntimeError(f"AI 调用失败: {str(e)}")
 
     # 所有重试耗尽 → 抛出最终错误（保留原有错误消息以兼容测试）
+    if last_error is None:
+        raise RuntimeError("AI 调用失败（已重试 3 次，未知错误）")
     if isinstance(last_error, requests.exceptions.ConnectionError):
         if provider_name == "ollama":
             raise ConnectionError(
@@ -219,5 +229,9 @@ def call_ai(system_prompt, user_prompt, api_config):
             raise ConnectionError(f"无法连接到 API ({base_url})（已重试 3 次）")
     elif isinstance(last_error, requests.exceptions.Timeout):
         raise TimeoutError("AI 请求超时，请检查网络或降低模型复杂度（已重试 3 次）")
+    elif isinstance(last_error, requests.exceptions.RequestException):
+        raise RuntimeError(
+            f"{provider.name} API 请求错误（已重试 3 次）: {str(last_error)}"
+        )
     else:
         raise RuntimeError(f"AI 调用失败（已重试 3 次）: {str(last_error)}")

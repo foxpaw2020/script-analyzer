@@ -1,5 +1,5 @@
 """
-剧本拆解大师 v2.49 — 配置文件
+剧本拆解大师 v2.52 — 配置文件
 """
 import os
 import hashlib
@@ -15,7 +15,7 @@ def _load_secret_key():
         with open(key_file, 'r') as f:
             return f.read().strip()
     except FileNotFoundError:
-        key = __import__('hashlib').sha256(os.urandom(64)).hexdigest()
+        key = hashlib.sha256(os.urandom(64)).hexdigest()
         with open(key_file, 'w') as f:
             f.write(key)
         os.chmod(key_file, 0o600)
@@ -45,7 +45,7 @@ OPENAI_MODEL = "gpt-4o"
 
 # 模型参数（种子固定保证输出可复现）
 SEED = 8012
-MAX_TOKENS = 384000       # 最大输出 384K
+MAX_TOKENS = 131072  # 128K 安全默认，界面可按需调高至 DeepSeek V4 最大输出 384K
 CONTEXT_LENGTH = 1000000  # 上下文窗口 1M
 
 DEEPSEEK_KNOWN_MODELS = [

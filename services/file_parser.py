@@ -60,7 +60,8 @@ def parse_docx(file_path):
 
 
 def parse_txt(file_path):
-    """解析 TXT 文件"""
+    """解析 TXT 文件，自动检测编码"""
+    # 尝试 UTF-8
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             text = f.read()
@@ -68,13 +69,16 @@ def parse_txt(file_path):
             raise ValueError("TXT 文件内容为空")
         return text
     except UnicodeDecodeError:
-        # 尝试其他编码
-        for encoding in ['gbk', 'gb2312', 'latin-1']:
-            try:
-                with open(file_path, 'r', encoding=encoding) as f:
-                    text = f.read()
-                if text.strip():
-                    return text
-            except (UnicodeDecodeError, LookupError):
-                continue
-        raise ValueError("无法解码 TXT 文件，请使用 UTF-8 编码保存")
+        pass
+    # 尝试其他编码
+    tried = []
+    for encoding in ['gbk', 'gb2312', 'latin-1']:
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                text = f.read()
+            if text.strip():
+                return text
+            tried.append(f'{encoding}(空内容)')
+        except (UnicodeDecodeError, LookupError) as e:
+            tried.append(f'{encoding}({e})')
+    raise ValueError(f"无法解码 TXT 文件，已尝试: {', '.join(tried)}，请使用 UTF-8 编码保存")

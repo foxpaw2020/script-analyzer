@@ -5,8 +5,8 @@
 <!-- (C) foxpaw -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>剧本拆解大师 v2.49</title>
-    <link rel="stylesheet" href="css/style.css">
+    <title>剧本拆解大师 v2.52</title>
+    <link rel="stylesheet" href="css/style.css?v=2.52">
 </head>
 <body>
 
@@ -28,7 +28,7 @@
                 <span>剧本拆解大师</span>
             </a>
             <div class="navbar-version">
-                v2.49 · AI Powered
+                v2.52 · AI Powered
             </div>
         </nav>
 
@@ -60,11 +60,10 @@
                         <path d="M24 16v16M16 24h16" stroke-linecap="round"/>
                     </svg>
                     <h3>上传剧本文件</h3>
-                    <p>拖拽文件到此处，或点击选择文件</p>
-                    <div class="formats">支持 PDF · DOCX · DOC · TXT (最大 50MB)</div>
+                    <p>拖拽文件到此处，或点击选择</p>
+                    <div class="formats">支持 PDF · DOCX · DOC · TXT · MD (最大 50MB)</div>
                     <input type="file" id="fileInput" accept=".pdf,.docx,.doc,.txt,.md,.markdown">
-                    
-                    <div class="file-info" id="fileInfo">
+                                        <div class="file-info" id="fileInfo">
                         <div>
                             <span class="file-name" id="fileName"></span>
                             <span class="file-size" id="fileSize"></span>
@@ -73,6 +72,8 @@
                             移除文件
                         </button>
                     </div>
+
+
                 </div>
             </div>
 
@@ -87,7 +88,7 @@
                 </div>
                 <textarea id="textInput" placeholder="将剧本内容粘贴到这里...
 
-支持标准剧本格式，例如：
+支持标准剧本格式（单集），例如：
 
 第一场 白天 室内 客厅
 [场景描述文字]
@@ -166,6 +167,7 @@
             <select id="apiProvider">
                 <option value="ollama">Ollama（本地）</option>
                 <option value="deepseek" selected>DeepSeek API</option>
+                <option value="openai">OpenAI API</option>
             </select>
             
             <input type="text" id="apiKeyInput" class="api-key-input" 
@@ -335,9 +337,12 @@
             </div>
         </div>
 
+
+
+
         <!-- ===== Footer ===== -->
         <footer class="footer">
-            <p><span class="brand">剧本拆解大师 v2.49</span></p>
+            <p><span class="brand">剧本拆解大师 v2.52</span></p>
             <p style="margin-top: 4px;">基于 AI 的智能剧本分析工具 · 支持 Ollama &amp; DeepSeek</p>
         </footer>
 
@@ -346,6 +351,6 @@
     <!-- ===== Floating Shot Splitter Button ===== -->
     <button id="splitShotsBtn" class="split-btn" title="拆解全集分镜为单集文件">拆</button>
 
-    <script src="js/app.js"></script>
+    <script src="js/app.js?v=2.52"></script>
 </body>
 </html>

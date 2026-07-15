@@ -180,20 +180,13 @@ def generate_word_report(all_results, script_name, episode_info=None):
                 run.bold = True
                 run.font.color.rgb = RGBColor(255, 153, 0)
                 doc.add_paragraph(_safe(scene['wide_shot_gpt']))
-            # 俯视图版 · Nano
-            if scene.get('topdown_nano'):
+            # 九宫格剧情参考图 · GPT
+            if scene.get('grid_nine_gpt'):
                 p = doc.add_paragraph()
-                run = p.add_run('俯视图版 · Nano Banana 2 Pro：')
+                run = p.add_run('九宫格剧情参考图 · GPT-Image-2：')
                 run.bold = True
                 run.font.color.rgb = RGBColor(255, 153, 0)
-                doc.add_paragraph(_safe(scene['topdown_nano']))
-            # 俯视图版 · GPT
-            if scene.get('topdown_gpt'):
-                p = doc.add_paragraph()
-                run = p.add_run('俯视图版 · GPT-Image-2：')
-                run.bold = True
-                run.font.color.rgb = RGBColor(255, 153, 0)
-                doc.add_paragraph(_safe(scene['topdown_gpt']))
+                doc.add_paragraph(_safe(scene['grid_nine_gpt']))
             doc.add_paragraph('')
     
     # 4. 分镜拆解（六模块分镜卡）

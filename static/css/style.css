@@ -421,6 +421,17 @@ body {
     box-shadow: 0 6px 24px rgba(255, 102, 0, 0.3);
 }
 
+.btn-batch {
+    background: linear-gradient(135deg, #1a6b3c, #0d904f);
+    color: #fff;
+    border: 1px solid #2ecc71;
+}
+.btn-batch:hover {
+    background: linear-gradient(135deg, #1e7d46, #10a85c);
+    box-shadow: 0 0 16px rgba(46, 204, 113, 0.3);
+}
+
+
 .btn-primary:disabled {
     opacity: 0.4;
     cursor: not-allowed;
@@ -1122,4 +1133,120 @@ body {
 @media (max-width: 768px) {
     .materials-grid { grid-template-columns: 1fr; }
     .style-options { flex-direction: column; }
+}
+
+
+
+/* ===== 批量文件列表 ===== */
+.batch-file-list {
+    margin-top: 12px;
+    padding: 10px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    border: 1px solid #333;
+}
+.batch-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.batch-title {
+    font-size: 13px;
+    color: #ccc;
+}
+.batch-title strong {
+    color: #4fc3f7;
+}
+.batch-files {
+    max-height: 200px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.batch-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 6px;
+    font-size: 12px;
+}
+.batch-file-item .ep-label {
+    color: #4fc3f7;
+    font-weight: 600;
+    min-width: 50px;
+}
+.batch-file-item .ep-filename {
+    color: #aaa;
+    flex: 1;
+    margin: 0 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.batch-file-item .ep-status {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+.batch-file-item .ep-status.pending {
+    color: #666;
+}
+.batch-file-item .ep-status.processing {
+    color: #4fc3f7;
+    background: rgba(79,195,247,0.1);
+}
+.batch-file-item .ep-status.done {
+    color: #4caf50;
+    background: rgba(76,175,80,0.1);
+}
+.batch-file-item .ep-status.error {
+    color: #f44336;
+    background: rgba(244,67,54,0.1);
+}
+.batch-progress-bar {
+    width: 100%;
+    height: 4px;
+    background: #222;
+    border-radius: 2px;
+    margin-top: 8px;
+    overflow: hidden;
+}
+.batch-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4fc3f7, #29b6f6);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+
+/* ===== 资产核对 ===== */
+.btn-audit {
+    background: linear-gradient(135deg, #6c3fb5, #8b5cf6);
+    color: #fff;
+    border: 1px solid #a78bfa;
+}
+.btn-audit:hover {
+    background: linear-gradient(135deg, #7c4fd5, #9b6cf6);
+    box-shadow: 0 0 16px rgba(139, 92, 246, 0.3);
+}
+.audit-upload {
+    cursor: pointer;
+    border: 2px dashed #333;
+    border-radius: 8px;
+    transition: border-color 0.2s;
+}
+.audit-upload:hover {
+    border-color: #8b5cf6;
+}
+.audit-section .batch-file-list {
+    margin-top: 8px;
+    text-align: left;
+}
+.audit-hint {
+    color: #8b5cf6;
+    font-size: 11px;
 }

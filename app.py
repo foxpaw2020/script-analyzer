@@ -1,5 +1,5 @@
 """
-剧本拆解大师v2.49版 - Flask Web 应用
+剧本拆解大师v2.52版 - Flask Web 应用
 支持上传/粘贴剧本，通过 AI 进行角色、道具、场景、分镜四步提取
 """
 # (C) foxpaw
@@ -29,6 +29,9 @@ from extractors import characters, props, scenes, shots, emotion_timeline
 from services.ai_service import call_ai
 from services.file_parser import parse_script
 from utils.text import detect_episode, split_script_by_episodes
+from asset_audit.auditor import extract_assets, merge_assets
+from asset_audit.pptx_builder import build_episode_pptx
+from asset_audit.html_builder import build_summary_html
 from utils.sse import json_sse
 from reports.word_report import generate_word_report
 from reports.html_report import generate_html_report
@@ -50,7 +53,7 @@ def add_security_headers(response):
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     response.headers['Cache-Control'] = 'no-store'
     # CORS: 仅允许同源
-    response.headers['Access-Control-Allow-Origin'] = request.host_url.rstrip('/') if request.host else '*'
+    response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
     return response
@@ -126,8 +129,8 @@ def _load_temp_knowledge(script_name):
             except (FileNotFoundError, json.JSONDecodeError):
                 return None
     return None
-def _output_path(script_name, filename):
-    """获取剧本专属输出路径，自动创建系列级子文件夹。内部使用 safe_join 防路径穿越。"""
+def _output_path(script_name, filename, episode_label=''):
+    """获取剧本专属输出路径。episode_label 非空时在系列目录下创建剧集子目录。"""
     if not script_name:
         d = config.OUTPUT_DIR
     else:
@@ -135,8 +138,203 @@ def _output_path(script_name, filename):
         d = safe_join(config.OUTPUT_DIR, series) if series else safe_join(config.OUTPUT_DIR, script_name)
     if not d:
         raise ValueError(f"非法剧本名称: {script_name}")
+    if episode_label:
+        d = os.path.join(d, episode_label)
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, filename)
+
+def _map_extraction_to_pptx_assets(extraction_results):
+    """将分步提取结果映射为 PPTX 生成器所需的字段格式"""
+    mapped_chars = []
+    for c in extraction_results.get('characters', {}).get('characters', []):
+        desc = (c.get('description', '') or '').strip()
+        if len(desc) > 20:
+            desc = desc[:18] + '..'
+        mapped_chars.append({
+            'name_cn': c.get('name', ''),
+            'name_en': '',
+            'costume': desc,
+        })
+    mapped_props = []
+    for p in extraction_results.get('props', {}).get('props', []):
+        mapped_props.append({
+            'name_cn': p.get('name', ''),
+            'usage': p.get('usage', ''),
+        })
+    mapped_scenes = []
+    for s in extraction_results.get('scenes', {}).get('scenes', []):
+        mapped_scenes.append({
+            'name_cn': s.get('title', ''),
+            'name_en': s.get('location', ''),
+            'synopsis': s.get('synopsis', ''),
+        })
+    return {
+        'characters': mapped_chars,
+        'props': mapped_props,
+        'scenes': mapped_scenes,
+    }
+
+
+def _cleanup_intermediate_files(script_name, episode_label):
+    """Delete intermediate step HTML files after final report is generated."""
+    intermediate_files = ['角色提取.html', '道具提取.html', '场景拆解.html', '分镜拆解.html']
+    series = _series_name(script_name)
+    d = safe_join(config.OUTPUT_DIR, series, episode_label) if series else safe_join(config.OUTPUT_DIR, script_name, episode_label)
+    if not d:
+        return
+    for fname in intermediate_files:
+        fpath = os.path.join(d, fname)
+        if os.path.isfile(fpath):
+            try:
+                os.remove(fpath)
+            except OSError:
+                pass
+
+
+
+# ===== 全剧进度文件（analysis_progress.json）=====
+
+import datetime as _dt
+
+def _progress_path(script_name):
+    """Get analysis_progress.json path for a series"""
+    return _output_path(script_name, 'analysis_progress.json')
+
+
+def _load_progress(script_name):
+    """Load full analysis progress, or None"""
+    try:
+        pp = _progress_path(script_name)
+        if os.path.isfile(pp):
+            with open(pp, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+
+def _save_progress(script_name, progress_data):
+    """Save full analysis progress"""
+    try:
+        pp = _progress_path(script_name)
+        os.makedirs(os.path.dirname(pp), exist_ok=True)
+        progress_data['updated_at'] = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        with open(pp, 'w', encoding='utf-8') as f:
+            json.dump(progress_data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _init_progress(script_name, episodes, selected_eps=None):
+    """Create initial progress file after split"""
+    now = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    ep_map = {}
+    for ep in episodes:
+        ep_map[ep['label']] = {
+            'status': 'pending',
+            'episode_num': ep.get('episode', 0),
+            'steps': {
+                'characters': {'status': 'pending'},
+                'props': {'status': 'pending'},
+                'scenes': {'status': 'pending'},
+                'shots': {'status': 'pending'},
+            }
+        }
+    data = {
+        'script_name': script_name,
+        'total_episodes': len(episodes),
+        'selected_episodes': selected_eps or [ep.get('episode', 0) for ep in episodes],
+        'status': 'running',
+        'started_at': now,
+        'updated_at': now,
+        'episodes': ep_map,
+    }
+    _save_progress(script_name, data)
+
+
+def _update_episode_step(script_name, episode_label, step_name, step_status, **kwargs):
+    """Update a single step status in progress file"""
+    prog = _load_progress(script_name)
+    if not prog:
+        return
+    eps = prog.get('episodes', {})
+    ep = eps.get(episode_label)
+    if not ep:
+        return
+    ep['status'] = 'running'
+    now = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    if not ep.get('started_at'):
+        ep['started_at'] = now
+    step = ep['steps'].get(step_name)
+    if step:
+        step['status'] = step_status
+        if step_status == 'processing' and not step.get('started_at'):
+            step['started_at'] = now
+        if step_status in ('completed', 'failed'):
+            step['completed_at'] = now
+        for k, v in kwargs.items():
+            step[k] = v
+    _save_progress(script_name, prog)
+
+
+def _mark_episode_complete(script_name, episode_label):
+    """Mark an episode as completed in progress"""
+    prog = _load_progress(script_name)
+    if not prog:
+        return
+    eps = prog.get('episodes', {})
+    ep = eps.get(episode_label)
+    if ep:
+        ep['status'] = 'completed'
+        ep['completed_at'] = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    # Check if all selected episodes are done
+    selected = [str(e) for e in prog.get('selected_episodes', [])]
+    all_done = all(
+        eps.get(lbl, {}).get('status') == 'completed'
+        for lbl in eps
+        if lbl.startswith('EPISODE') and any(lbl.endswith(f' {e}') or lbl.endswith(f' {str(e).zfill(2)}') for e in selected)
+    )
+    # Simpler check: all episodes with label in progress are completed
+    all_eps_done = all(eps[lbl].get('status') == 'completed' for lbl in eps if eps[lbl].get('episode_num', 0) in prog.get('selected_episodes', []))
+    if all_eps_done:
+        prog['status'] = 'completed'
+    _save_progress(script_name, prog)
+
+
+def _is_episode_completed(script_name, episode_label):
+    """Check if an episode is fully completed"""
+    prog = _load_progress(script_name)
+    if not prog:
+        return False
+    ep = prog.get('episodes', {}).get(episode_label)
+    return ep and ep.get('status') == 'completed'
+
+
+def _get_completed_steps(script_name, episode_label):
+    """Get list of completed step names for an episode"""
+    prog = _load_progress(script_name)
+    if not prog:
+        return []
+    ep = prog.get('episodes', {}).get(episode_label)
+    if not ep:
+        return []
+    return [s for s, d in ep.get('steps', {}).items() if d.get('status') == 'completed']
+
+
+
+def _call_ai_retry(sys_p, user_p, api_config, step_label, max_retries=5):
+    """Call AI with retry. Returns (result, None) on success, (None, error_msg) on final failure."""
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            result = call_ai(sys_p, user_p, api_config)
+            return result, None
+        except Exception as e:
+            last_error = str(e)
+            if attempt < max_retries - 1:
+                time.sleep(2 ** min(attempt, 3))
+    return None, f"{step_label}已重试{max_retries}次仍失败: {last_error}"
+
 
 # ============================================================
 # 路由
@@ -330,7 +528,7 @@ def analyze():
                     script_text = parse_script(file_path)
                 except Exception as e:
                     logging.getLogger("app").error("文件解析失败: %s", str(e))
-                    yield json_sse("error", {"message": "文件解析失败，请确认文件格式正确且未损坏"})
+                    yield json_sse("error", {"message": f"文件解析失败: {str(e)}"})
                     return
                 finally:
                     # 清理临时文件
@@ -375,6 +573,21 @@ def analyze():
             
             # 获取分析步骤参数（空=全部，指定则只跑该步）
             step_filter = request.form.get('step', '').strip()
+            resume_step = request.form.get('resume_step', '').strip()
+            
+            # 批量模式参数
+            batch_mode = request.form.get('batch_mode', '').strip()
+            episode_label = request.form.get('episode_label', '').strip()
+            # 批量模式下输出子目录（如 EPISODE 01）
+            ep_subdir = episode_label if batch_mode == '1' and episode_label else ''
+            
+            # 断点续传：从 progress 文件加载已完成的步骤
+            completed_steps = _get_completed_steps(script_name, ep_subdir) if ep_subdir else []
+            if completed_steps:
+                yield json_sse("info", {"message": f"检测到已完成步骤：{', '.join(completed_steps)}，从断点继续..."})
+                pass  # resume_step is used below
+            if completed_steps:
+                yield json_sse("info", {"message": f"检测到已完成步骤：{', '.join(completed_steps)}，从断点继续..."})
             
             # 读取剧本拆解风格
             breakdown_style = request.form.get('breakdown_style', 'normal').strip()
@@ -493,7 +706,9 @@ def analyze():
             })
             
             # ===== 步骤1: 角色提取 =====
-            if not step_filter or step_filter == 'characters':
+            if (not step_filter or step_filter == 'characters') and 'characters' not in completed_steps:
+                if ep_subdir:
+                    _update_episode_step(script_name, ep_subdir, 'characters', 'processing')
                 yield json_sse("progress", {"step": "characters", "status": "processing", "label": "角色提取", "message": f"第一轮：分{len(script_chunks)}块扫描角色名..."})
                 try:
                     all_names = set()
@@ -501,7 +716,10 @@ def analyze():
                         if len(script_chunks) > 1:
                             yield json_sse("progress", {"step": "characters", "status": "processing", "label": "角色提取", "message": f"扫描第{i+1}/{len(script_chunks)}段..."})
                         sys_p, user_p = characters.build_list_prompt(chunk)
-                        raw = call_ai(sys_p, user_p, api_config)
+                        raw, retry_err = _call_ai_retry(sys_p, user_p, api_config, '角色提取', max_retries=3)
+                        if retry_err:
+                            yield json_sse('pause', {'step': 'characters', 'message': retry_err, 'data': {'results': results}})
+                            return
                         names = characters.parse_list(raw)
                         all_names.update(names)
                     
@@ -511,7 +729,10 @@ def analyze():
                     
                     yield json_sse("progress", {"step": "characters", "status": "processing", "label": "角色提取", "message": f"发现 {len(char_names)} 个角色，第二轮：生成详情和提示词..."})
                     sys_p, user_p = characters.build_detail_prompt(script_text, char_names, temp_kb=temp_kb)
-                    raw = call_ai(sys_p, user_p, api_config)
+                    raw, retry_err = _call_ai_retry(sys_p, user_p, api_config, '角色提取第二轮')
+                    if retry_err:
+                        yield json_sse('pause', {'step': 'characters', 'message': retry_err, 'data': {'results': results}})
+                        return
                     result = characters.parse_result(raw)
                     results['characters'] = result
                     cc = len(result.get('characters', []))
@@ -525,17 +746,23 @@ def analyze():
                         key=lambda c: char_order.get(c.get('role_type', ''), 99))
                     # 生成分步 HTML 报告
                     partial_html = generate_html_report(results, script_name, episode_info=None)
-                    partial_path = _output_path(script_name, '角色提取.html')
+                    partial_path = _output_path(script_name, '角色提取.html', ep_subdir)
                     with open(partial_path, 'w', encoding='utf-8') as f:
                         f.write(partial_html)
+                    if ep_subdir:
+                        _update_episode_step(script_name, ep_subdir, 'characters', 'completed', result_summary=f'识别 {cc} 个角色')
                     yield json_sse("progress", {"step": "characters", "status": "complete", "label": "角色提取", "message": f"完成！识别 {cc} 个角色", "data": result, "download_url": f"/api/download/{os.path.basename(partial_path)}"})
                 except Exception as e:
                     yield json_sse("progress", {"step": "characters", "status": "error", "label": "角色提取", "message": f"失败：{str(e)}"})
-                    yield json_sse("error", {"message": f"角色提取失败: {str(e)}"})
-                    return
+                    if step_filter and step_filter == 'characters':
+                        yield json_sse("error", {"message": f"角色提取失败: {str(e)}"})
+                        return
+                    results['characters'] = {"characters": [], "total_count": 0, "error": str(e)}
             
             # ===== 步骤2: 道具提取 =====
-            if not step_filter or step_filter == 'props':
+            if (not step_filter or step_filter == 'props') and 'props' not in completed_steps:
+                if ep_subdir:
+                    _update_episode_step(script_name, ep_subdir, 'props', 'processing')
                 # 检测集数：单集无频率限制，多集要求≥2场
                 eps = split_script_by_episodes(script_text)
                 ep_count = len(eps) if eps else 0
@@ -543,73 +770,125 @@ def analyze():
                 freq_hint = "单集模式：提取全部道具" if min_freq <= 1 else f"多集模式（{ep_count}集）：仅提取≥2场道具"
                 yield json_sse("progress", {"step": "props", "status": "processing", "label": "道具提取", "message": f"第一轮：扫描全剧本道具名（{freq_hint}）..."})
                 try:
-                    sys_p, user_p = props.build_list_prompt(script_text, min_appearances=min_freq)
-                    raw = call_ai(sys_p, user_p, api_config)
-                    prop_names = props.parse_list(raw)
-                    if not isinstance(prop_names, list):
-                        prop_names = []
+                    prop_names = []
+                    for attempt in range(2):
+                        sys_p, user_p = props.build_list_prompt(script_text, min_appearances=min_freq)
+                        if attempt > 0:
+                            user_p = "（重试，请务必列出所有道具名称）\n" + user_p
+                        raw, retry_err = _call_ai_retry(sys_p, user_p, api_config, '道具提取' + ('(重试)' if attempt > 0 else ''), max_retries=3)
+                        if retry_err:
+                            # already retried at _call_ai_retry level, give up
+                            pass
+                        prop_names = props.parse_list(raw) if raw else []
+                        if not isinstance(prop_names, list):
+                            prop_names = []
+                        if len(prop_names) > 0:
+                            break
+                        if attempt == 0:
+                            yield json_sse("progress", {"step": "props", "status": "processing", "label": "道具提取", "message": "第一轮返回空，重试中..."})
+                            time.sleep(2)
                     
                     if len(prop_names) == 0:
                         raw_preview = str(raw)[:300] if raw else '(AI未返回内容)'
                         logging.getLogger("app").warning("道具第一轮返回0个道具，AI原始返回前500字: %s", str(raw)[:500])
-                        raise RuntimeError(f"道具第一轮未识别到任何道具。AI原始返回: {raw_preview}")
+                        raise RuntimeError(f"道具第一轮未识别到任何道具（已重试1次）。AI原始返回: {raw_preview}")
                     else:
                         yield json_sse("progress", {"step": "props", "status": "processing", "label": "道具提取", "message": f"发现 {len(prop_names)} 个道具，第二轮：生成详情和提示词..."})
                         sys_p, user_p = props.build_detail_prompt(script_text, prop_names, results, temp_kb=temp_kb)
-                        raw = call_ai(sys_p, user_p, api_config)
+                        raw, pretry_err = _call_ai_retry(sys_p, user_p, api_config, '道具提取第二轮')
+                        if pretry_err:
+                            yield json_sse('pause', {'step': 'props', 'message': pretry_err, 'data': {'results': results}})
+                            return
                         result = props.parse_result(raw)
                         results['props'] = result
                         pc = len(result.get('props', []))
                         if pc == 0:
-                            yield json_sse("progress", {"step": "props", "status": "complete", "label": "道具提取", "message": f"⚠️ 第二轮解析失败。AI原始返回前200字: {raw[:200]}"})
+                            yield json_sse("progress", {"step": "props", "status": "complete", "label": "道具提取", "message": f"⚠️ 第二轮解析失败。AI原始返回前500字: {raw[:500]}"})
                         else:
                             # 生成分步 HTML 报告
                             partial_html = generate_html_report(results, script_name, episode_info=None)
-                            partial_path = _output_path(script_name, '道具提取.html')
+                            partial_path = _output_path(script_name, '道具提取.html', ep_subdir)
                             with open(partial_path, 'w', encoding='utf-8') as f:
                                 f.write(partial_html)
+                            if ep_subdir:
+                                _update_episode_step(script_name, ep_subdir, 'props', 'completed', result_summary=f'识别 {pc} 个道具')
                             yield json_sse("progress", {"step": "props", "status": "complete", "label": "道具提取", "message": f"完成！识别 {pc} 个道具", "data": result, "download_url": f"/api/download/{os.path.basename(partial_path)}"})
                 except Exception as e:
                     yield json_sse("progress", {"step": "props", "status": "error", "label": "道具提取", "message": f"失败：{str(e)}"})
-                    yield json_sse("error", {"message": f"道具提取失败: {str(e)}"})
-                    return
+                    if step_filter and step_filter == 'props':
+                        yield json_sse("error", {"message": f"道具提取失败: {str(e)}"})
+                        return
+                    results['props'] = {"props": [], "total_count": 0, "error": str(e)}
             
             # ===== 步骤3: 场景拆解 =====
-            if not step_filter or step_filter == 'scenes':
+            if (not step_filter or step_filter == 'scenes') and 'scenes' not in completed_steps:
+                if ep_subdir:
+                    _update_episode_step(script_name, ep_subdir, 'scenes', 'processing')
                 yield json_sse("progress", {"step": "scenes", "status": "processing", "label": "场景拆解", "message": "第一轮：识别所有场景场次..."})
                 try:
                     sys_p, user_p = scenes.build_list_prompt(script_text)
-                    raw = call_ai(sys_p, user_p, api_config)
+                    raw, sretry_err = _call_ai_retry(sys_p, user_p, api_config, '场景拆解', max_retries=3)
+                    if sretry_err:
+                        yield json_sse('pause', {'step': 'scenes', 'message': sretry_err, 'data': {'results': results}})
+                        return
                     scene_list = scenes.parse_list(raw)
                     if not scene_list and raw:
-                        logging.getLogger("app").warning("场景第一轮返回无法解析，AI原始返回前500字: %s", str(raw)[:500])
+                        logging.getLogger("app").warning("场景第一轮返回0个场景，AI原始返回前500字: %s", str(raw)[:500])
                     if not scene_list:
-                        raw_preview = str(raw)[:300] if raw else '(AI未返回内容)'
-                        raise RuntimeError(f"第一轮未识别到任何场景。AI原始返回: {raw_preview}")
+                        results['scenes'] = {"scenes": [], "total": 0, "summary": "无场景"}
+                        yield json_sse("progress", {"step": "scenes", "status": "complete", "label": "场景拆解", "message": "无场景可拆解，跳过"})
+                        scene_skip = True
+                    else:
+                        scene_skip = False
                     
-                    yield json_sse("progress", {"step": "scenes", "status": "processing", "label": "场景拆解", "message": f"发现 {len(scene_list)} 个场景，第二轮：生成十层描述和双版提示词..."})
-                    sys_p, user_p = scenes.build_detail_prompt(script_text, scene_list, results, temp_kb=temp_kb)
-                    raw = call_ai(sys_p, user_p, api_config)
-                    result = scenes.parse_result(raw)
-                    results['scenes'] = result
-                    sc = len(result.get('scenes', []))
-                    if sc == 0:
-                        raw_preview = str(raw)[:400] if raw else '(AI未返回内容)'
-                        logging.getLogger("app").warning("场景第二轮返回0个场景，AI原始返回前500字: %s", str(raw)[:500])
-                        raise RuntimeError(f"第二轮生成0个场景详情。AI原始返回前400字: {raw_preview}")
-                    # 生成分步 HTML 报告
-                    partial_html = generate_html_report(results, script_name, episode_info=None)
-                    partial_path = _output_path(script_name, '场景拆解.html')
-                    with open(partial_path, 'w', encoding='utf-8') as f:
-                        f.write(partial_html)
-                    yield json_sse("progress", {"step": "scenes", "status": "complete", "label": "场景拆解", "message": f"完成！拆解 {sc} 个场景", "data": result, "download_url": f"/api/download/{os.path.basename(partial_path)}"})
+                    if not scene_skip:
+                        yield json_sse("progress", {"step": "scenes", "status": "processing", "label": "场景拆解", "message": f"发现 {len(scene_list)} 个场景，第二轮：生成十层描述和双版提示词..."})
+                        sys_p, user_p = scenes.build_detail_prompt(script_text, scene_list, results, temp_kb=temp_kb)
+                        raw, s2retry_err = _call_ai_retry(sys_p, user_p, api_config, '场景拆解第二轮')
+                        if s2retry_err:
+                            yield json_sse('pause', {'step': 'scenes', 'message': s2retry_err, 'data': {'results': results}})
+                            return
+                        result = scenes.parse_result(raw)
+                        results['scenes'] = result
+                        sc = len(result.get('scenes', []))
+                        if sc == 0:
+                            raw_preview = str(raw)[:400] if raw else '(AI未返回内容)'
+                            logging.getLogger("app").warning("场景第二轮返回0个场景，AI原始返回前500字: %s", str(raw)[:500])
+                            raise RuntimeError(f"第二轮生成0个场景详情。AI原始返回前400字: {raw_preview}")
+                        # 第三轮：生成多面板布局参考图提示词
+                        yield json_sse("progress", {"step": "scenes", "status": "processing", "label": "场景拆解", "message": f"第三轮：生成 {sc} 个场景的多面板布局参考图提示词..."})
+                        try:
+                            sys_p, user_p = scenes.build_multipanel_prompt(script_text, result, results, temp_kb=temp_kb)
+                            raw4, _ = _call_ai_retry(sys_p, user_p, api_config, '场景拆解第三轮')
+                            result = scenes.parse_multipanel_result(raw4, result)
+                            results['scenes'] = result
+                            yield json_sse("progress", {"step": "scenes", "status": "processing", "label": "场景拆解", "message": f"第三轮完成"})
+                        except Exception as e4:
+                            yield json_sse("progress", {"step": "scenes", "status": "processing", "label": "场景拆解", "message": f"第三轮失败（多面板版将使用自动生成）: {str(e4)[:100]}"})
+                            # 兜底：用自动生成填充缺失的 multi_panel_gpt
+                            from extractors.scenes import _generate_multi_panel, _fix_lighting_in_mp
+                            for s in result.get('scenes', []):
+                                if not s.get('multi_panel_gpt'):
+                                    s['multi_panel_gpt'] = _generate_multi_panel(s)
+                                    s['multi_panel_gpt'] = _fix_lighting_in_mp(s.get('multi_panel_gpt', ''))
+                        
+                        # 生成分步 HTML 报告
+                        partial_html = generate_html_report(results, script_name, episode_info=None)
+                        partial_path = _output_path(script_name, '场景拆解.html', ep_subdir)
+                        with open(partial_path, 'w', encoding='utf-8') as f:
+                            f.write(partial_html)
+                        yield json_sse("progress", {"step": "scenes", "status": "complete", "label": "场景拆解", "message": f"完成！拆解 {sc} 个场景", "data": result, "download_url": f"/api/download/{os.path.basename(partial_path)}"})
                 except Exception as e:
                     yield json_sse("progress", {"step": "scenes", "status": "error", "label": "场景拆解", "message": f"失败：{str(e)}"})
-                    yield json_sse("error", {"message": f"场景拆解失败: {str(e)}"})
-                    return
+                    if step_filter and step_filter == 'scenes':
+                        yield json_sse("error", {"message": f"场景拆解失败: {str(e)}"})
+                        return
+                    results['scenes'] = {"scenes": [], "error": str(e)}
             
             # ===== 步骤4: 分镜拆解 =====
-            if not step_filter or step_filter == 'shots':
+            if (not step_filter or step_filter == 'shots') and 'shots' not in completed_steps:
+                if ep_subdir:
+                    _update_episode_step(script_name, ep_subdir, 'shots', 'processing')
                 # 尝试按集拆分剧本
                 episodes = split_script_by_episodes(script_text)
                 # 如果集拆分失败但剧本很长（>2万字），强制按字数切块
@@ -633,11 +912,11 @@ def analyze():
                 use_batches = episodes and len(episodes) > 2
 
                 if use_batches:
-                    batch_size = 2
+                    batch_size = 1
                     total_episodes = len(episodes)
                     total_batches = (total_episodes + batch_size - 1) // batch_size
                     ep_nums = [str(e[0]) for e in episodes if e[0] > 0]
-                    yield json_sse("progress", {"step": "shots", "status": "processing", "label": "分镜拆解", "message": f"全剧 {total_episodes} 集（检测到：{', '.join(ep_nums[:10])}{'...' if len(ep_nums)>10 else ''}），按 {batch_size} 集一批处理，共 {total_batches} 批..."})
+                    yield json_sse("progress", {"step": "shots", "status": "processing", "label": "分镜拆解", "message": f"全剧 {total_episodes} 集（检测到：{', '.join(ep_nums[:10])}{'...' if len(ep_nums)>10 else ''}），逐集处理，共 {total_batches} 集..."})
 
                     all_shot_scenes = []
                     total_shots_all = 0
@@ -649,7 +928,7 @@ def analyze():
                     for batch_idx in range(0, total_episodes, batch_size):
                         batch_eps = episodes[batch_idx:batch_idx + batch_size]
                         batch_num = batch_idx // batch_size + 1
-                        ep_range = f"第{batch_eps[0][0]}-{batch_eps[-1][0]}集"
+                        ep_range = f"第{batch_eps[0][0]}集"
                         batch_text = "\n\n".join(t for _, t in batch_eps)
                         batch_result = None
 
@@ -664,7 +943,7 @@ def analyze():
                                 if 'v4-flash' in model_name:
                                     shots_api_config['thinking'] = '1'
                                 sys_p, user_p = shots.build_list_prompt(batch_text, results, style=breakdown_style)
-                                raw = call_ai(sys_p, user_p, shots_api_config)
+                                raw, _ = _call_ai_retry(sys_p, user_p, shots_api_config, '分镜拆解规划', max_retries=2)
                                 shot_plan = shots.parse_list(raw)
 
                                 yield json_sse("progress", {"step": "shots", "status": "processing", "label": "分镜拆解", "message": f"批次 {batch_num}/{total_batches}：{ep_range} 第二轮详情{retry_tag}..."})
@@ -676,25 +955,25 @@ def analyze():
                                     if char_names and scene_list:
                                         yield json_sse("progress", {"step": "shots", "status": "processing", "label": "情绪预分析", "message": "分析角色情绪时间线..."})
                                         et_sys, et_user = emotion_timeline.build_prompt(batch_text, char_names, scene_list)
-                                        et_raw = call_ai(et_sys, et_user, api_config)
+                                        et_raw, _ = _call_ai_retry(et_sys, et_user, api_config, '情绪时间线', max_retries=2)
                                         et_data = emotion_timeline.parse_result(et_raw)
                                 except Exception:
                                     pass
                                 sys_p, user_p = shots.build_detail_prompt(batch_text, shot_plan, results, style=breakdown_style, emotion_timeline=et_data)
                                 if prev_tail:
                                     user_p += f"\n\n【上下文衔接】上一批剧情结束于：{prev_tail}。请确保本批首批分镜从该状态自然接续。"
-                                raw = call_ai(sys_p, user_p, api_config)
+                                raw, _ = _call_ai_retry(sys_p, user_p, api_config, '分镜拆解详情', max_retries=2)
                                 batch_result = shots.parse_result(raw)
                                 batch_scenes = batch_result.get('scenes', [])
                                 batch_shots = batch_result.get('total_shots', 0)
                                 if batch_shots == 0:
                                     if attempt == 0:
-                                        yield json_sse("progress", {"step": "shots", "status": "processing", "label": "分镜拆解", "message": f"批次 {batch_num}/{total_batches}：{ep_range} 空结果，重试中...（{raw[:100]}）"})
+                                        yield json_sse("progress", {"step": "shots", "status": "processing", "label": "分镜拆解", "message": f"批次 {batch_num}/{total_batches}：{ep_range} 空结果，重试中...（{raw[:300]}）"})
                                         time.sleep(1)
                                         continue  # 重试
                                     else:
                                         empty_batches.append(ep_range)
-                                        yield json_sse("progress", {"step": "shots", "status": "processing", "label": "分镜拆解", "message": f"批次 {batch_num}/{total_batches}：{ep_range} 重试仍为空 ⚠️（{raw[:100]}）"})
+                                        yield json_sse("progress", {"step": "shots", "status": "processing", "label": "分镜拆解", "message": f"批次 {batch_num}/{total_batches}：{ep_range} 重试仍为空 ⚠️（{raw[:300]}）"})
                                 else:
                                     all_shot_scenes.extend(batch_scenes)
                                     total_shots_all += batch_shots
@@ -715,7 +994,7 @@ def analyze():
                                     }
                                     try:
                                         partial_html = generate_html_report(results, script_name, episode_info=None)
-                                        partial_path = _output_path(script_name, '分镜拆解.html')
+                                        partial_path = _output_path(script_name, '分镜拆解.html', ep_subdir)
                                         with open(partial_path, 'w', encoding='utf-8') as f:
                                             f.write(partial_html)
                                     except Exception:
@@ -771,7 +1050,7 @@ def analyze():
                     results['shots'] = result
                     # 生成分步 HTML 报告
                     partial_html = generate_html_report(results, script_name, episode_info=None)
-                    partial_path = _output_path(script_name, '分镜拆解.html')
+                    partial_path = _output_path(script_name, '分镜拆解.html', ep_subdir)
                     with open(partial_path, 'w', encoding='utf-8') as f:
                         f.write(partial_html)
                     yield json_sse("progress", {"step": "shots", "status": "complete", "label": "分镜拆解", "message": f"完成！{completed_batches}/{total_batches} 批，全剧 {total_episodes} 集，生成 {total_shots_all} 个分镜" + (f"（{len(incomplete_batches)} 批失败）" if incomplete_batches else ""), "data": result, "download_url": f"/api/download/{os.path.basename(partial_path)}"})
@@ -789,9 +1068,16 @@ def analyze():
                         if 'v4-flash' in model_name:
                             shots_api_config['thinking'] = '1'
                         sys_p, user_p = shots.build_list_prompt(script_text, results, style=breakdown_style)
-                        raw = call_ai(sys_p, user_p, shots_api_config)
+                        raw, _ = _call_ai_retry(sys_p, user_p, shots_api_config, '分镜拆解规划', max_retries=3)
+                        shot_plan_raw = raw  # 保存规划步骤的原始输出
                         shot_plan = shots.parse_list(raw)
                         plan_scenes = shot_plan.get('total_scenes', len(shot_plan.get('scenes', [])))
+                        if plan_scenes == 0:
+                            raw_preview = shot_plan_raw[:500] if shot_plan_raw else "EMPTY"
+                            err_msg = "⚠️ 分镜规划返回 0 个场景，无法继续。AI原始返回前500字: " + raw_preview[:300]
+                            yield json_sse("progress", {"step": "shots", "status": "error", "label": "分镜拆解", "message": err_msg})
+                            results["shots"] = {"scenes":[],"total_scenes":0,"total_shots":0,"summary":"规划步骤失败"}
+                            return
                         yield json_sse("progress", {"step": "shots", "status": "processing", "label": "分镜拆解", "message": f"第二轮：生成六模块分镜详情（规划 {plan_scenes} 场）..."})
                         # 情绪时间线预分析
                         et_data = None
@@ -801,27 +1087,32 @@ def analyze():
                             if char_names and scene_list:
                                 yield json_sse("progress", {"step": "shots", "status": "processing", "label": "情绪预分析", "message": "分析角色情绪时间线..."})
                                 et_sys, et_user = emotion_timeline.build_prompt(script_text, char_names, scene_list)
-                                et_raw = call_ai(et_sys, et_user, api_config)
+                                et_raw, _ = _call_ai_retry(et_sys, et_user, api_config, '情绪时间线', max_retries=3)
                                 et_data = emotion_timeline.parse_result(et_raw)
                         except Exception:
                             pass
                         sys_p, user_p = shots.build_detail_prompt(script_text, shot_plan, results, style=breakdown_style, emotion_timeline=et_data)
-                        raw = call_ai(sys_p, user_p, shots_api_config)
+                        raw, _ = _call_ai_retry(sys_p, user_p, shots_api_config, '分镜拆解详情', max_retries=3)
                         result = shots.parse_result(raw)
                         results['shots'] = result
                         st = result.get('total_shots', 0)
                         if st == 0:
-                            yield json_sse("progress", {"step": "shots", "status": "complete", "label": "分镜拆解", "message": f"⚠️ 分镜数为 0。AI原始返回前200字: {raw[:200]}", "data": result})
+                            plan_info = f"规划步骤共 {plan_scenes} 个场景"
+                            detail = '解析结果: total_scenes=' + str(result.get('total_scenes','?')) + ', total_shots=' + str(result.get('total_shots','?')) + ', scenes列表=' + str(len(result.get('scenes',[]))) + '项' 
+                            raw_preview = raw[:500] if raw else "EMPTY"
+                            yield json_sse("progress", {"step": "shots", "status": "complete", "label": "分镜拆解", "message": f"⚠️ 分镜数为 0。{plan_info}。{detail}。AI原始返回前500字:\n{raw_preview}", "data": result})
                         else:
                             partial_html = generate_html_report(results, script_name, episode_info=None)
-                            partial_path = _output_path(script_name, '分镜拆解.html')
+                            partial_path = _output_path(script_name, '分镜拆解.html', ep_subdir)
                             with open(partial_path, 'w', encoding='utf-8') as f:
                                 f.write(partial_html)
                             yield json_sse("progress", {"step": "shots", "status": "complete", "label": "分镜拆解", "message": f"完成！生成 {st} 个分镜", "data": result, "download_url": f"/api/download/{os.path.basename(partial_path)}"})
                     except Exception as e:
                         yield json_sse("progress", {"step": "shots", "status": "error", "label": "分镜拆解", "message": f"失败：{str(e)}"})
-                        yield json_sse("error", {"message": f"分镜拆解失败: {str(e)}"})
-                        return
+                        if step_filter and step_filter == 'shots':
+                            yield json_sse("error", {"message": f"分镜拆解失败: {str(e)}"})
+                            return
+                        results['shots'] = {"shots": [], "total_shots": 0, "error": str(e)}
             
             # ===== 生成报告（仅自动模式）=====
             if not step_filter:
@@ -829,10 +1120,20 @@ def analyze():
                 
                 try:
                     episode_info = detect_episode(script_text)
-                    # HTML 报告
+                    # 确定剧集标签：优先 batch_mode 传入的 episode_label
+                    if batch_mode == '1' and episode_label:
+                        ep_label = episode_label.replace(' ', '_')
+                    elif episode_info:
+                        ep_label = f"EP{episode_info['current']}"
+                    elif episode_label:
+                        ep_label = episode_label.replace(' ', '_')
+                    else:
+                        ep_label = "EP"
+                    
+                    # HTML 报告 — batch_mode 时写入剧集子目录
                     html_content = generate_html_report(results, script_name, episode_info)
-                    ep_label = f"EP{episode_info['current']}" if episode_info else "EP"
-                    html_path = _output_path(script_name, f'{ep_label}_拆解报告.html')
+                    ep_subdir = episode_label if batch_mode == '1' and episode_label else ''
+                    html_path = _output_path(script_name, f'{ep_label}_拆解报告.html', ep_subdir)
                     with open(html_path, 'w', encoding='utf-8') as f:
                         f.write(html_content)
                     
@@ -841,8 +1142,26 @@ def analyze():
                     
                     if not os.path.exists(html_path):
                         raise RuntimeError("HTML 报告生成失败")
-                    if not os.path.exists(word_path):
+                    if word_path and not os.path.exists(word_path):
                         raise RuntimeError("Word 报告生成失败")
+                    
+                    # 资产核对 PPTX — 写入剧集子目录（字段映射为 PPTX 所需格式）
+                    pptx_file = None
+                    try:
+                        assets = _map_extraction_to_pptx_assets(results)
+                        ep_num = episode_info['current'] if episode_info else 1
+                        pptx_name = f'{script_name}_{ep_label}_资产核对.pptx'
+                        pptx_path = _output_path(script_name, pptx_name, ep_subdir) if ep_subdir else os.path.join(os.path.dirname(html_path), pptx_name)
+                        build_episode_pptx(assets, script_name, ep_num, pptx_path)
+                        pptx_file = os.path.basename(pptx_path)
+                    except Exception:
+                        pass  # PPTX is optional
+                    
+                    # 标记完成 + 批量模式：删除中间分步文件
+                    if ep_subdir:
+                        _mark_episode_complete(script_name, ep_subdir)
+                    if batch_mode == '1' and ep_subdir:
+                        _cleanup_intermediate_files(script_name, ep_subdir)
                     
                     yield json_sse("progress", {
                         "step": "report",
@@ -851,7 +1170,8 @@ def analyze():
                         "message": f"报告已生成！",
                         "data": {
                             "html_file": os.path.basename(html_path),
-                            "word_file": os.path.basename(word_path),
+                            "word_file": os.path.basename(word_path) if word_path else None,
+                        "pptx_file": pptx_file,
                             "script_name": script_name
                         }
                     })
@@ -860,8 +1180,9 @@ def analyze():
                     yield json_sse("complete", {
                         "message": "剧本分析全部完成！",
                         "html_file": os.path.basename(html_path),
-                        "word_file": os.path.basename(word_path),
-                        "output_dir": config.OUTPUT_DIR,
+                        "word_file": os.path.basename(word_path) if word_path else None,
+                        "pptx_file": pptx_file,
+                        "output_dir": os.path.dirname(html_path) if html_path else config.OUTPUT_DIR,
                         "script_name": script_name,
                         "results": results
                     })
@@ -881,8 +1202,16 @@ def analyze():
                 try:
                     episode_info = detect_episode(script_text)
                     html_content = generate_html_report(results, script_name, episode_info)
-                    ep_label = f"EP{episode_info['current']}" if episode_info else "EP"
-                    html_path = _output_path(script_name, f'{ep_label}_拆解报告.html')
+                    if batch_mode == '1' and episode_label:
+                        ep_label = episode_label.replace(' ', '_')
+                    elif episode_info:
+                        ep_label = f"EP{episode_info['current']}"
+                    elif episode_label:
+                        ep_label = episode_label.replace(' ', '_')
+                    else:
+                        ep_label = "EP"
+                    ep_subdir = episode_label if batch_mode == '1' and episode_label else ''
+                    html_path = _output_path(script_name, f'{ep_label}_拆解报告.html', ep_subdir)
                     with open(html_path, 'w', encoding='utf-8') as f:
                         f.write(html_content)
                     word_path = generate_word_report(results, script_name, episode_info)
@@ -894,7 +1223,7 @@ def analyze():
                     "message": f"{step_names.get(step_filter, step_filter)}完成！",
                     "html_file": os.path.basename(html_path) if html_path else None,
                     "word_file": os.path.basename(word_path) if word_path else None,
-                    "output_dir": config.OUTPUT_DIR,
+                    "output_dir": os.path.dirname(html_path) if html_path else config.OUTPUT_DIR,
                     "script_name": script_name,
                     "results": results
                 })
@@ -915,6 +1244,8 @@ def analyze():
 @app.route('/api/download/<filename>')
 def download_report(filename):
     """下载生成的报告"""
+    if not _check_rate_limit(_get_client_id(), max_requests=60, window=60):
+        return jsonify({"error": "请求过于频繁，请稍后重试"}), 429
     file_path = safe_join(config.OUTPUT_DIR, filename)
     if file_path is None or not os.path.isfile(file_path):
         return jsonify({"error": "文件不存在"}), 404
@@ -932,6 +1263,45 @@ def download_report(filename):
         download_name=os.path.basename(file_path)
     )
 
+
+@app.route('/api/parse_file', methods=['POST'])
+def parse_file():
+    """解析上传的文件（.docx/.doc/.pdf/.txt/.md）为纯文本，供前端做多集检测等"""
+    if 'file' not in request.files:
+        return jsonify({"error": "请上传文件"}), 400
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({"error": "文件名为空"}), 400
+    
+    # 保存临时文件
+    ext = os.path.splitext(file.filename)[1].lower()
+    tmp_path = os.path.join(config.UPLOAD_FOLDER, f"parse_{uuid.uuid4().hex}{ext}")
+    os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
+    file.save(tmp_path)
+    
+    try:
+        text = parse_script(tmp_path)
+        # 检测集数
+        eps = split_script_by_episodes(text) or []
+        episode_markers = []
+        for ep_num, ep_text in eps:
+            if ep_num > 0:
+                episode_markers.append({"number": ep_num, "label": f"第{ep_num}集" if ep_num < 100 else f"EPISODE {ep_num}"})
+        
+        return jsonify({
+            "success": True,
+            "text": text,
+            "text_length": len(text),
+            "episodes": episode_markers,
+            "total_episodes": len(episode_markers)
+        })
+    except Exception as e:
+        return jsonify({"error": f"文件解析失败: {str(e)}"}), 500
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
 
 @app.route('/api/split-shots', methods=['POST'])
 def split_shots():
@@ -959,6 +1329,81 @@ def preview_report(filename):
         content = f.read()
     return content, 200, {'Content-Type': 'text/html; charset=utf-8'}
 
+
+@app.route('/api/split_script', methods=['POST'])
+def split_script():
+    """检测并拆分多集剧本为独立 .docx 文件（不改动原文）"""
+    data = request.get_json(silent=True) or {}
+    script_text = (data.get('text') or '').strip()
+    script_name = (data.get('script_name') or '未命名剧本').strip()
+    selected_eps = data.get('episodes')  # [1, 3, 5] 或 None（全选）
+
+    if not script_text:
+        return jsonify({"error": "剧本内容为空"}), 400
+
+    script_name = re.sub(r'[\\/:*?"<>|]', '_', script_name)
+    script_name = script_name.replace('\x00', '')
+    script_name = script_name.lstrip('.-').strip()[:100] or "未命名剧本"
+
+    episodes = split_script_by_episodes(script_text)
+    if not episodes:
+        return jsonify({"error": "未检测到集标记（第X集 / EPISODE X / EP X），请在剧本中添加集标记后重试"}), 400
+
+    actual_eps = [e for e in episodes if e[0] > 0]
+    if not actual_eps:
+        return jsonify({"error": "未检测到有效集号"}), 400
+
+    if selected_eps and isinstance(selected_eps, list) and len(selected_eps) > 0:
+        selected_set = set(int(s) for s in selected_eps)
+        actual_eps = [e for e in actual_eps if e[0] in selected_set]
+
+    if not actual_eps:
+        return jsonify({"error": "没有匹配的集号"}), 400
+
+    series = _series_name(script_name)
+    output_dir = safe_join(config.OUTPUT_DIR, series)
+    if not output_dir:
+        return jsonify({"error": "非法剧本名称"}), 400
+    os.makedirs(output_dir, exist_ok=True)
+
+    from docx import Document
+    from docx.shared import Pt
+
+    results = []
+    for ep_num, ep_text in actual_eps:
+        ep_label = f"EPISODE {str(ep_num).zfill(2)}"
+        ep_dir = os.path.join(output_dir, ep_label)
+        os.makedirs(ep_dir, exist_ok=True)
+
+        doc = Document()
+        doc.core_properties.author = "foxpaw"
+        style = doc.styles['Normal']
+        style.font.name = 'Microsoft YaHei'
+        style.font.size = Pt(11)
+        doc.add_heading(f'{script_name} — {ep_label}', level=0)
+        for para in ep_text.split('\n'):
+            if para.strip():
+                doc.add_paragraph(para.strip())
+        docx_path = os.path.join(ep_dir, f'{ep_label}_剧本原文.docx')
+        doc.save(docx_path)
+
+        results.append({
+            "episode": ep_num,
+            "label": ep_label,
+            "docx_path": docx_path,
+            "docx_file": os.path.basename(docx_path),
+            "text_length": len(ep_text),
+            "text": ep_text
+        })
+
+    _init_progress(series, results, selected_eps)
+    return jsonify({
+        "success": True,
+        "series": series,
+        "output_dir": output_dir,
+        "episodes": results,
+        "total": len(results)
+    })
 
 @app.route('/api/preprocess', methods=['POST'])
 def preprocess():
@@ -1127,6 +1572,176 @@ def clear_materials():
 # ============================================================
 # 启动
 # ============================================================
+@app.route('/api/asset_audit', methods=['POST'])
+def asset_audit():
+    """资产核对：批量上传分集剧本，提取人物/道具/场景，输出 PPTX + HTML"""
+    if not _require_auth():
+        return jsonify({"error": "未授权访问"}), 401
+    
+    uploaded_files = request.files.getlist('files')
+    if not uploaded_files:
+        return jsonify({"error": "请上传分集文件"}), 400
+    
+    provider = request.form.get("provider", "ollama")
+    api_key = request.form.get("api_key", "")
+    model = request.form.get("model", "lfm2:latest")
+    
+    audit_api_config = {
+        "provider": provider,
+        "api_key": api_key,
+        "model": model,
+        "base_url": request.form.get("base_url", "http://localhost:11434"),
+        "temperature": "0.3",
+        "max_tokens": "4096",
+        "timeout": 60
+    }
+    
+    series_name = request.form.get('series_name', '未命名剧集')
+    
+    file_data = []
+    for f in uploaded_files:
+        if f.filename:
+            ep_match = re.search(r'(\d+)', f.filename)
+            ep_num = int(ep_match.group(1)) if ep_match else 999
+            content_bytes = f.read()
+            ext = os.path.splitext(f.filename)[1].lower()
+            file_data.append((ep_num, f.filename, ext, content_bytes))
+    
+    file_data.sort(key=lambda x: x[0])
+    
+    def generate():
+        try:
+            if not file_data:
+                yield json_sse("error", {"message": "请上传至少一个分集文件"})
+                return
+            
+            total = len(file_data)
+            all_assets = []
+            base_dir = os.path.join(config.OUTPUT_DIR, series_name)
+            os.makedirs(base_dir, exist_ok=True)
+            
+            yield json_sse("info", {"message": f"开始资产核对《{series_name}》，共 {total} 集"})
+            
+            for idx, (ep_num, filename, ext, content_bytes) in enumerate(file_data):
+                ep_label = f"EPISODE {str(ep_num).zfill(2)}"
+                ep_dir = os.path.join(base_dir, ep_label)
+                os.makedirs(ep_dir, exist_ok=True)
+                yield json_sse("progress", {
+                    "step": "audit", "status": "processing",
+                    "label": "资产核对",
+                    "message": f"{ep_label}：正在提取资产...",
+                    "data": {"episode": ep_num}
+                })
+                
+                tmp_path = os.path.join(config.UPLOAD_FOLDER, f"audit_{idx}{ext}")
+                os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
+                with open(tmp_path, 'wb') as wf:
+                    wf.write(content_bytes)
+                
+                try:
+                    script_text = parse_script(tmp_path)
+                except Exception as e:
+                    yield json_sse("progress", {
+                        "step": "audit", "status": "error",
+                        "message": f"{ep_label}：文件解析失败 - {str(e)}",
+                        "data": {"episode": ep_num}
+                    })
+                    all_assets.append({"characters":[],"props":[],"scenes":[],"error":str(e)})
+                    try: os.remove(tmp_path)
+                    except OSError: pass
+                    continue
+                
+                try: os.remove(tmp_path)
+                except OSError: pass
+                
+                assets = None
+                for retry in range(2):
+                    try:
+                        assets = extract_assets(script_text, api_config=audit_api_config)
+                        break
+                    except Exception as ex:
+                        if retry == 0:
+                            import time; time.sleep(2)
+                        else:
+                            assets = {"characters":[],"props":[],"scenes":[],"error":str(ex)}
+                all_assets.append(assets)
+                
+                char_count = len(assets.get('characters', []))
+                prop_count = len(assets.get('props', []))
+                scene_count = len(assets.get('scenes', []))
+                
+                pptx_path = os.path.join(ep_dir, f'{series_name}_{ep_label}_资产核对.pptx')
+                try:
+                    build_episode_pptx(assets, series_name, ep_num, pptx_path)
+                except Exception as e:
+                    yield json_sse("progress", {
+                        "step": "audit", "status": "error",
+                        "message": f"{ep_label}：PPTX 生成失败 - {str(e)}",
+                        "data": {"episode": ep_num}
+                    })
+                    continue
+                
+                yield json_sse("progress", {
+                    "step": "audit", "status": "complete",
+                    "message": f"{ep_label} 完成！人物{char_count} · 道具{prop_count} · 场景{scene_count}",
+                    "data": {"episode": ep_num, "characters": char_count, "props": prop_count, "scenes": scene_count}
+                })
+            
+            yield json_sse("progress", {
+                "step": "audit", "status": "processing",
+                "message": "正在生成全剧资产汇总 HTML..."
+            })
+            html_path = os.path.join(base_dir, f'{series_name}_全剧资产汇总.html')
+            build_summary_html(all_assets, series_name, html_path)
+            
+            yield json_sse("complete", {
+                "message": f"资产核对完成！共 {total} 集",
+                "html_file": os.path.basename(html_path),
+                "output_dir": base_dir
+            })
+            
+        except Exception as e:
+            import traceback
+            logging.getLogger("app").error("资产核对失败: %s\n%s", str(e), traceback.format_exc())
+            yield json_sse("error", {"message": f"资产核对失败: {str(e)}"})
+    
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'Connection': 'keep-alive'}
+    )
+
+
+@app.route('/api/progress_status', methods=['POST'])
+def progress_status():
+    """查询全剧分析进度"""
+    data = request.get_json(silent=True) or {}
+    script_name = (data.get('script_name') or '').strip()
+    if not script_name:
+        return jsonify({"error": "请提供剧本名称"}), 400
+    prog = _load_progress(script_name)
+    if not prog:
+        return jsonify({"exists": False})
+    return jsonify({"exists": True, "progress": prog})
+
+
+@app.route('/api/progress_delete', methods=['POST'])
+def progress_delete():
+    """删除进度文件（用户选择从头开始）"""
+    data = request.get_json(silent=True) or {}
+    script_name = (data.get('script_name') or '').strip()
+    if not script_name:
+        return jsonify({"error": "请提供剧本名称"}), 400
+    try:
+        pp = _progress_path(script_name)
+        if os.path.isfile(pp):
+            os.remove(pp)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
 
 if __name__ == '__main__':
     if 'GUNICORN_CMD_ARGS' in os.environ or 'gunicorn' in sys.argv[0]:
@@ -1138,7 +1753,7 @@ if __name__ == '__main__':
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
         
         print("=" * 60)
-        print("  [Film] 剧本拆解大师 v2.49")
+        print("  [Film] 剧本拆解大师 v2.52")
         print("=" * 60)
         print("  OpenAI Compatible API: POST /v1/chat/completions")
         print("  Ollama API: POST /api/chat")

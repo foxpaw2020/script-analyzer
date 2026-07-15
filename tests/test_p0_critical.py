@@ -117,8 +117,8 @@ class TestCallAiOllama:
         assert result == ""
 
     @patch('services.ai_service.requests.post')
-    def test_call_ai_invalid_temperature(self, mock_post):
-        """传入 api_config={"temperature": "abc"}，应转为 RuntimeError 而非崩溃"""
+    def test_call_ai_invalid_temperature_uses_default(self, mock_post):
+        """传入 api_config={"temperature": "abc"}，不应崩溃，应优雅降级使用默认温度 0.7"""
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"message": {"content": "ok"}}
         mock_resp.raise_for_status.return_value = None
@@ -130,12 +130,16 @@ class TestCallAiOllama:
             "base_url": "http://localhost:11434",
             "temperature": "abc",
         }
-        with pytest.raises(RuntimeError, match="AI 参数配置错误"):
-            call_ai("system", "user", api_config)
+        result = call_ai("system", "user", api_config)
+        assert result == "ok"
+        # 验证请求 payload 中 temperature 使用默认值 0.7
+        _, kwargs = mock_post.call_args
+        payload = kwargs["json"]
+        assert payload["options"]["temperature"] == 0.7, f"Expected default 0.7, got {payload['options']['temperature']}"
 
     @patch('services.ai_service.requests.post')
-    def test_call_ai_invalid_max_tokens(self, mock_post):
-        """传入 api_config={"max_tokens": ""}，应转为 RuntimeError 而非崩溃"""
+    def test_call_ai_empty_max_tokens_uses_default(self, mock_post):
+        """传入 api_config={"max_tokens": ""}，应优雅降级使用默认值而非崩溃"""
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"message": {"content": "ok"}}
         mock_resp.raise_for_status.return_value = None
@@ -147,8 +151,8 @@ class TestCallAiOllama:
             "base_url": "http://localhost:11434",
             "max_tokens": "",
         }
-        with pytest.raises(RuntimeError, match="AI 参数配置错误"):
-            call_ai("system", "user", api_config)
+        result = call_ai("system", "user", api_config)
+        assert result == "ok"
 
 
 class TestCallAiDeepseek:
@@ -375,17 +379,17 @@ class TestAnalyzeEndpoint:
             '   "text_signage":"","info_card":"小明信息卡","prompt":"小明提示词"}],'
             '"total_count":1,"summary":"ok"}',
             # 步骤2: props — 第1轮：列出道具
-            '{"characters":[],"total":0}',
-            # 步骤2: props — 第2轮：详情（无道具时跳过？不，仍会调用）
-            '{"props":[],"total_count":0,"summary":"无道具"}',
+            '{"props":[],"total":0}',
             # 步骤3: scenes — 第1轮：列出场景
-            '{"characters":[],"total":0}',
+            '{"scenes":[{"scene_number":1,"title":"办公室","time":"白天","location":"公司"}],"total":1}',
             # 步骤3: scenes — 第2轮：详情
-            '{"scenes":[],"total_count":0,"summary":"无场景"}',
+            '{"scenes":[{"scene_number":1,"title":"办公室","episode":"第1集","time":"白天","location":"公司","scene_type":"内景","characters":["小明"],"props":["电脑"],"category":"A级","synopsis":"小明走进办公室","dramatic_function":"建立场景","mood":"平静","emotion_tags":"日常","lighting_scheme":"N3","estimated_duration":"3s","scene_info_card":"办公室场景","extraction_basis":"剧本原文","wide_shot_gpt":"全景提示词","grid_nine_gpt":"九宫格提示词","multi_panel_gpt":"多面板提示词","urban_microclimate":"室内","general_params":"实拍"}],"total_count":1,"summary":"ok"}',
             # 步骤4: shots — 第1轮：规划分镜
-            '{"characters":[],"total":0}',
+            '{"scenes":[{"scene_title":"办公室","scene_number":1,"shot_count":1,"shots_summary":["@小明 走进办公室"]}],"total_scenes":1}',
+            # 步骤4: emotion_timeline — 情绪预分析
+            '{"scenes":[{"scene_number":1,"scene_title":"办公室","characters":{"小明":{"emotion_arc":[{"stage":"开始","emotion":"平静","intensity":"3","trigger":"走进办公室"}]}}}]}',
             # 步骤4: shots — 第2轮：详情
-            '{"scenes":[],"total_scenes":0,"total_shots":0,"summary":"无分镜"}',
+            '{"scenes":[{"scene_title":"办公室","scene_number":1,"shots":[{"shot_id":"1-1","scene_title":"办公室","subject":"小明","setting":"办公室","lighting":"N3","camera":"中景,固定镜头","emotion":"平静","intensity":"3","action_chains":1,"total_duration":3,"timeline":[{"time_range":"00:00-00:03","action":"铺垫 日常节奏 中景固定 @小明 走进办公室"}],"dialogue":"","sfx":"","end_frame":"小明站在办公室中央","constraints":"电影级实拍质感,禁止3D渲染/CGI,无字幕,无Logo,无文字,无字幕,无水印,无UI元素,无标志,无书本文字,台词结束后停顿0.5秒"}],"shot_count":1}],"total_scenes":1,"total_shots":1,"summary":"ok"}',
         ]
 
         resp = client.post('/api/analyze', data={

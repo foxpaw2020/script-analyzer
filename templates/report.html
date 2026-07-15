@@ -291,12 +291,12 @@
                 </div>
 
                 <div class="prompt-pair">
-                    <div class="prompt-label">俯视图版 · GPT-Image-2</div>
-                    <div class="prompt-block" id="tg_prompt_{{ loop.index0 }}">{{ scene.topdown_gpt or '无' }}</div>
-                    <button class="copy-btn" onclick="copyPrompt('tg_prompt_{{ loop.index0 }}', this)">复制</button>
-                    <button class="edit-btn" onclick="toggleEdit('tg_prompt_{{ loop.index0 }}', this)" id="edit_tg_prompt_{{ loop.index0 }}">修改提示词</button>
-                    <button class="save-btn" onclick="savePrompt('tg_prompt_{{ loop.index0 }}', this)" id="save_tg_prompt_{{ loop.index0 }}" style="display:none;">保存修改</button>
-                    <span class="version-info" id="ver_tg_prompt_{{ loop.index0 }}"></span>
+                    <div class="prompt-label">九宫格剧情参考图 · GPT-Image-2</div>
+                    <div class="prompt-block" id="gn_prompt_{{ loop.index0 }}">{{ scene.grid_nine_gpt or '无' }}</div>
+                    <button class="copy-btn" onclick="copyPrompt('gn_prompt_{{ loop.index0 }}', this)">复制</button>
+                    <button class="edit-btn" onclick="toggleEdit('gn_prompt_{{ loop.index0 }}', this)" id="edit_gn_prompt_{{ loop.index0 }}">修改提示词</button>
+                    <button class="save-btn" onclick="savePrompt('gn_prompt_{{ loop.index0 }}', this)" id="save_gn_prompt_{{ loop.index0 }}" style="display:none;">保存修改</button>
+                    <span class="version-info" id="ver_gn_prompt_{{ loop.index0 }}"></span>
                 </div>
                 {% if scene.multi_panel_gpt %}
                 <div class="prompt-pair">
@@ -394,7 +394,7 @@
     {% endif %}
 
     <div class="report-footer">
-        <p>由 <span class="brand">剧本拆解大师 v2.49</span> 生成</p>
+        <p>由 <span class="brand">剧本拆解大师 v2.52</span> 生成</p>
         <p style="margin-top:4px;">{{ generate_time }}</p>
     </div>
 

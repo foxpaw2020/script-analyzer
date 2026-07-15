@@ -1,5 +1,5 @@
 /**
- * 剧本拆解大师 v2.49 - 前端主逻辑
+ * 剧本拆解大师 v2.52 - 前端主逻辑
  */
 
 //  (C) foxpaw
@@ -116,6 +116,7 @@
         DOM.preprocessBtn = document.getElementById('preprocessBtn');
         DOM.preprocessHint = document.getElementById('preprocessHint');
         DOM.materialsStatus = document.getElementById('materialsStatus');
+        // 资产核对
     }
 
     // ============================================================
@@ -176,7 +177,7 @@
         .then(r => r.json())
         .then(data => {
             DOM.modelSelect.disabled = false;
-            DOM.modelsFetched = true;
+            state.modelsFetched = true;
             
             populateModelSelect(data.models);
             
@@ -651,17 +652,72 @@
         if (apiConfig.provider === 'deepseek' && !apiConfig.api_key) { showError('请填写 API Key'); return; }
         if (apiConfig.provider === 'openai' && !apiConfig.api_key) { showError('请填写 API Key'); return; }
         
-        showScriptNameDialog(function() {
-            var hasMaterials = !!(DOM.charBioText.value.trim() || DOM.outlineText.value.trim());
-            if (!hasMaterials && !state.materialsPreprocessed) {
-                showNoMaterialsDialog(function() {
-                    DOM.noMaterialsDialog.style.display = 'none';
-                    doStartAnalysis();
-                });
+        // 检测是否为多集剧本（仅对文本文件做检测，docx/pdf 直接分析）
+        var file = DOM.fileInput.files[0];
+        if (file) {
+            var ext = file.name.split('.').pop().toLowerCase();
+            // 文本格式：读取内容检测多集
+            if (ext === 'txt' || ext === 'md' || ext === 'markdown') {
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    var text = e.target.result;
+                    var eps = detectEpisodes(text);
+                    if (eps.length > 1) {
+                        state.fullScriptText = text;
+                        showEpisodeSelectDialog(eps, function(selectedEps) {
+                            state.selectedEpisodes = selectedEps;
+                            checkMaterialsAndStart(doStartMultiEpisodeAnalysis);
+                        });
+                    } else {
+                        showScriptNameDialog(function() {
+                            checkMaterialsAndStart(doStartAnalysis);
+                        });
+                    }
+                };
+                reader.readAsText(file, "UTF-8");
                 return;
             }
-            doStartAnalysis();
-        });
+            // Word/PDF：先上传解析文本，再检测多集
+            var parseFd = new FormData();
+            parseFd.append('file', file);
+            fetch('/api/parse_file', { method: 'POST', body: parseFd })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) { showError('文件解析失败: ' + data.error); return; }
+                    if (data.episodes && data.episodes.length > 0) {
+                        // 多集剧本
+                        state.fullScriptText = data.text;
+                        var eps = data.episodes.map(function(ep) {
+                            return { index: 0, label: ep.label };
+                        });
+                        showEpisodeSelectDialog(eps, function(selectedEps) {
+                            state.selectedEpisodes = selectedEps;
+                            checkMaterialsAndStart(doStartMultiEpisodeAnalysis);
+                        });
+                    } else {
+                        // 单集
+                        showScriptNameDialog(function() {
+                            checkMaterialsAndStart(doStartAnalysis);
+                        });
+                    }
+                })
+                .catch(function(err) {
+                    showError('文件解析失败: ' + (err.message || '网络错误'));
+                });
+            return;
+        }
+    }
+    
+    function checkMaterialsAndStart(startFn) {
+        var hasMaterials = !!(DOM.charBioText.value.trim() || DOM.outlineText.value.trim());
+        if (!hasMaterials && !state.materialsPreprocessed) {
+            showNoMaterialsDialog(function() {
+                DOM.noMaterialsDialog.style.display = "none";
+                startFn();
+            });
+        } else {
+            startFn();
+        }
     }
     
     function doStartAnalysis() {
@@ -882,6 +938,274 @@
         updateProgressBar(Math.min(progress, 100));
     }
 
+
+
+
+
+// 多集剧本：先拆分再逐集分析
+async function doStartMultiEpisodeAnalysis() {
+    state.isAnalyzing = true;
+    state.results = {};
+    state.downloadFiles = {};
+    state.startTime = Date.now();
+    state.abortController = new AbortController();
+    DOM.startBtn.disabled = true;
+    DOM.startBtn.textContent = "拆分中...";
+    DOM.startBtn.classList.add("btn-loading");
+    DOM.stopBtn.style.display = "";
+    DOM.stopBtn2.style.display = "";
+    DOM.analysisTimer.style.display = "inline";
+    DOM.analysisTimer.textContent = "00:00";
+    if (state.timerInterval) clearInterval(state.timerInterval);
+    state.timerInterval = setInterval(updateTimer, 1000);
+    DOM.progressPanel.classList.add("show");
+    DOM.resultsSection.classList.remove("show");
+    resetAllSteps();
+    hideError();
+    
+    try {
+        // 阶段1：调用后端拆分剧本生成 .docx
+        setStepStatus("stepChars", "processing", "阶段1：拆分原始剧本...");
+        updateProgressBar(5);
+        
+        var splitResp = await fetch("/api/split_script", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                text: state.fullScriptText,
+                script_name: state.scriptName,
+                episodes: state.selectedEpisodes
+            }),
+            signal: state.abortController.signal
+        });
+        
+        if (!splitResp.ok) {
+            var errData = await splitResp.json().catch(function() { return {}; });
+            throw new Error(errData.error || '拆分失败 (' + splitResp.status + ')');
+        }
+        
+        var splitResult = await splitResp.json();
+        var epList = splitResult.episodes;
+        var total = epList.length;
+        
+        // 检查是否有未完成的进度
+        var progResp = await fetch("/api/progress_status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ script_name: state.scriptName }),
+            signal: state.abortController.signal
+        }).catch(function() { return { ok: false }; });
+        
+        if (progResp.ok) {
+            var progData = await progResp.json();
+            if (progData.exists && progData.progress && progData.progress.status === "running") {
+                var completedEps = [];
+                var pendingEps = [];
+                epList.forEach(function(ep) {
+                    var epProg = progData.progress.episodes && progData.progress.episodes[ep.label];
+                    if (epProg && epProg.status === "completed") {
+                        completedEps.push(ep.label);
+                    } else {
+                        pendingEps.push(ep);
+                    }
+                });
+                
+                if (completedEps.length > 0 && pendingEps.length > 0) {
+                    var resumeChoice = await showResumeDialog(completedEps, pendingEps);
+                    if (resumeChoice === "restart") {
+                        await fetch("/api/progress_delete", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ script_name: state.scriptName })
+                        });
+                    } else if (resumeChoice === "resume") {
+                        epList = pendingEps;
+                        total = epList.length;
+                        setStepStatus("stepChars", "complete", "已跳过 " + completedEps.length + " 集已完成，剩余 " + total + " 集");
+                    } else {
+                        // stop
+                        endAnalysis();
+                        return;
+                    }
+                }
+            }
+        }
+        
+        setStepStatus("stepChars", "complete", "已拆分 " + total + " 集原始剧本");
+        updateProgressBar(10);
+        
+        // 阶段2：逐集分析
+        var apiConfig = getApiConfig();
+        
+        for (var idx = 0; idx < total; idx++) {
+            if (!state.isAnalyzing) break;
+            
+            var ep = epList[idx];
+            var epLabel = ep.label;
+            
+            setStepStatus("stepChars", "processing", "第" + (idx+1) + "/" + total + "集 · " + epLabel + " · 开始分析...");
+            var baseProgress = 10 + (idx / total) * 85;
+            updateProgressBar(baseProgress);
+            
+            // 构建 FormData
+            var fd = new FormData();
+            fd.append('text', ep.text);
+            fd.append('script_name', state.scriptName);
+            fd.append('batch_mode', '1');
+            fd.append('episode_label', epLabel);
+            fd.append('episode_index', String(idx + 1));
+            fd.append('episode_total', String(total));
+            fd.append('api_config[provider]', apiConfig.provider);
+            fd.append('api_config[api_key]', apiConfig.api_key || '');
+            fd.append('api_config[model]', apiConfig.model || '');
+            fd.append('api_config[base_url]', apiConfig.base_url || '');
+            fd.append('api_config[temperature]', isNaN(apiConfig.temperature) ? '' : apiConfig.temperature);
+            fd.append('api_config[top_p]', isNaN(apiConfig.top_p) ? '' : apiConfig.top_p);
+            fd.append('api_config[frequency_penalty]', isNaN(apiConfig.frequency_penalty) ? '' : apiConfig.frequency_penalty);
+            fd.append('api_config[presence_penalty]', isNaN(apiConfig.presence_penalty) ? '' : apiConfig.presence_penalty);
+            fd.append('api_config[max_tokens]', isNaN(apiConfig.max_tokens) ? '' : apiConfig.max_tokens);
+            fd.append('api_config[thinking]', apiConfig.thinking ? '1' : '0');
+            fd.append('breakdown_style', state.breakdownStyle);
+            fd.append('char_bio', DOM.charBioText.value);
+            fd.append('story_outline', DOM.outlineText.value);
+            
+            try {
+                var resp = await fetch("/api/analyze", {
+                    method: "POST",
+                    body: fd,
+                    signal: state.abortController.signal
+                });
+                
+                if (!resp.ok) {
+                    var errTxt = await resp.text().catch(function() { return ''; });
+                    throw new Error('服务器错误 (' + resp.status + '): ' + (errTxt.slice(0, 200) || ''));
+                }
+                
+                // Read SSE stream
+                var reader = resp.body.getReader();
+                // Read SSE stream for progress display
+                var decoder2 = new TextDecoder();
+                var buffer2 = "";
+                while (true) {
+                    var chunk = await reader.read();
+                    if (chunk.done) break;
+                    buffer2 += decoder2.decode(chunk.value, {stream: true});
+                    var evLines = buffer2.split("\n");
+                    buffer2 = evLines.pop() || "";
+                    var evt = "", evd = "";
+                    for (var li = 0; li < evLines.length; li++) {
+                        var l = evLines[li];
+                        if (l.startsWith("event: ")) evt = l.slice(7).trim();
+                        else if (l.startsWith("data: ")) evd = l.slice(6).trim();
+                        else if (l === "" && evt && evd) {
+                            try {
+                                var d = JSON.parse(evd);
+                                if (evt === "progress") {
+                                    var epPrefix = "第" + (idx+1) + "/" + total + "集 · ";
+                                    setStepStatus("stepChars", "processing", epPrefix + (d.label||"") + ": " + (d.message||""));
+                                } else if (evt === "pause") {
+                                    reader.cancel();
+                                    var choice = await showPauseDialog(d.step || "分析", d.message, d.data && d.data.results || {});
+                                    if (choice === "retry") {
+                                        // Re-send with resume_step
+                                        fd.set("resume_step", d.step || "");
+                                        if (d.data && d.data.results) {
+                                            fd.set("prior_results", JSON.stringify(d.data.results));
+                                        }
+                                        // Recurse: re-call this episode
+                                        idx--; // will re-process current episode
+                                        break;
+                                    } else {
+                                        state.isAnalyzing = false;
+                                        endAnalysis();
+                                        return;
+                                    }
+                                }
+                            } catch(ee) {}
+                            evt = ""; evd = "";
+                        }
+                    }
+                }
+                
+                setStepStatus("stepReport", "complete", "第" + (idx+1) + "/" + total + "集 · " + epLabel + " · 完成");
+                updateProgressBar(10 + ((idx + 1) / total) * 85);
+                
+            } catch (e) {
+                if (e.name === 'AbortError') break;
+                console.error("Episode " + epLabel + " error:", e);
+                setStepStatus("stepReport", "error", epLabel + " 失败: " + (e.message || "未知错误"));
+            }
+        }
+        
+        updateProgressBar(100);
+        setStepStatus("stepReport", "complete", "全部分析完成！共 " + total + " 集");
+        
+    } catch (e) {
+        if (e.name !== 'AbortError') {
+            console.error("Multi-episode error:", e);
+            showError("批量分析失败: " + (e.message || "未知错误"));
+        }
+    }
+    
+    endAnalysis();
+}
+
+
+
+// ===== 断点续传弹窗 =====
+function showResumeDialog(completedEps, pendingEps) {
+    return new Promise(function(resolve) {
+        var overlay = document.createElement("div");
+        overlay.id = "resumeDialog";
+        overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;";
+        overlay.innerHTML = '<div style="background:#1A1A1A;border:1px solid #333;border-radius:12px;padding:28px;max-width:460px;">' +
+            '<div style="font-size:36px;margin-bottom:12px;text-align:center;">&#128260;</div>' +
+            '<h3 style="color:#FFF;margin:0 0 8px;text-align:center;">检测到未完成的分析</h3>' +
+            '<p style="color:#888;font-size:13px;margin-bottom:4px;">已完成 ' + completedEps.length + ' 集：' + completedEps.join(", ") + '</p>' +
+            '<p style="color:#888;font-size:13px;margin-bottom:16px;">剩余 ' + pendingEps.length + ' 集：' + pendingEps.map(function(e) { return e.label; }).join(", ") + '</p>' +
+            '<div style="display:flex;gap:12px;justify-content:center;">' +
+                '<button id="resumeRestartBtn" style="padding:10px 20px;background:#333;color:#CCC;border:1px solid #444;border-radius:8px;cursor:pointer;font-size:13px;">重新开始</button>' +
+                '<button id="resumeStopBtn" style="padding:10px 20px;background:#333;color:#CCC;border:1px solid #444;border-radius:8px;cursor:pointer;font-size:13px;">取消</button>' +
+                '<button id="resumeContinueBtn" style="padding:10px 24px;background:#FF6600;color:#FFF;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">从断点继续</button>' +
+            '</div></div>';
+        document.body.appendChild(overlay);
+        
+        document.getElementById('resumeRestartBtn').onclick = function() { document.body.removeChild(overlay); resolve('restart'); };
+        document.getElementById('resumeStopBtn').onclick = function() { document.body.removeChild(overlay); resolve('stop'); };
+        document.getElementById('resumeContinueBtn').onclick = function() { document.body.removeChild(overlay); resolve('resume'); };
+    });
+}
+
+// ===== 暂停/重试弹窗 =====
+var _pauseResolve = null;
+
+function showPauseDialog(step, message, results) {
+    return new Promise(function(resolve) {
+        _pauseResolve = resolve;
+        var overlay = document.createElement("div");
+        overlay.id = "pauseDialog";
+        overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;";
+        overlay.innerHTML = '<div style="background:#1A1A1A;border:1px solid #333;border-radius:12px;padding:28px;max-width:440px;text-align:center;">' +
+            '<div style="font-size:36px;margin-bottom:12px;">&#9888;&#65039;</div>' +
+            '<h3 style="color:#FFF;margin-bottom:8px;">' + step + ' &#22833;&#36133;</h3>' +
+            '<p style="color:#999;font-size:13px;margin-bottom:20px;">' + (message || 'AI&#37325;&#35797;5&#27425;&#20173;&#22833;&#36133;') + '</p>' +
+            '<div style="display:flex;gap:12px;justify-content:center;">' +
+                '<button id="pauseStopBtn" style="padding:10px 24px;background:#333;color:#CCC;border:1px solid #444;border-radius:8px;cursor:pointer;font-size:14px;">&#20572;&#27490;&#20998;&#26512;</button>' +
+                '<button id="pauseRetryBtn" style="padding:10px 24px;background:#FF6600;color:#FFF;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">&#20877;&#35797;5&#27425;</button>' +
+            '</div></div>';
+        document.body.appendChild(overlay);
+        
+        document.getElementById('pauseStopBtn').onclick = function() {
+            document.body.removeChild(overlay);
+            resolve('stop');
+        };
+        document.getElementById('pauseRetryBtn').onclick = function() {
+            document.body.removeChild(overlay);
+            resolve('retry');
+        };
+    });
+}
+
     function endAnalysis() {
         state.isAnalyzing = false;
         DOM.startBtn.disabled = false;
@@ -1003,12 +1327,16 @@
             e.preventDefault();
             DOM.uploadZone.classList.remove('dragover');
             if (e.dataTransfer.files.length) {
-                DOM.fileInput.files = e.dataTransfer.files;
-                handleFileSelect();
+                var dt = new DataTransfer();
+                dt.items.add(e.dataTransfer.files[0]);
+                DOM.fileInput.files = dt.files;
+                handleFileSelect(e.dataTransfer.files[0]);
             }
         });
         
-        DOM.fileInput.addEventListener('change', handleFileSelect);
+        DOM.fileInput.addEventListener('change', function() {
+            handleFileSelect(DOM.fileInput.files[0]);
+        });
         
         DOM.clearFileBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -1118,8 +1446,11 @@
         loadProviderConfig();
     }
 
-    function handleFileSelect() {
-        const file = DOM.fileInput.files[0];
+
+
+
+    function handleFileSelect(optFile) {
+        const file = optFile || DOM.fileInput.files[0];
         if (!file) return;
         
         const ext = file.name.split('.').pop().toLowerCase();
@@ -1392,6 +1723,75 @@
         };
     }
 
+
+// 前端集检测（与后端 split_script_by_episodes 使用相同正则）
+function detectEpisodes(text) {
+    var pattern = /(^|\n)\s*(第\s*\d+\s*集|第\s*[一二三四五六七八九十百千零]+\s*集|EPISODE\s*\d+|Episode\s*\d+|EP\s*\d+)\b/gim;
+    var matches = [];
+    var m;
+    while ((m = pattern.exec(text)) !== null) {
+        var label = m[2].replace(/\s+/g, ' ').trim();
+        matches.push({ index: m.index, label: label });
+    }
+    return matches;
+}
+
+
+// 集选择弹窗
+function showEpisodeSelectDialog(episodes, onConfirm) {
+    var detected = guessScriptName();
+    // Build episode list HTML
+    var epListHtml = "";
+    episodes.forEach(function(ep, idx) {
+        var epNum = (ep.label.match(/(\d+)/) || ["?"])[1];
+        var checked = "checked";
+        epListHtml += '<label style="display:flex;align-items:center;padding:10px 14px;margin:4px 0;background:#111;border:1px solid #333;border-radius:8px;cursor:pointer;font-size:14px;color:#CCC;">' +
+            '<input type="checkbox" class="ep-checkbox" value="' + epNum + '" ' + checked + ' style="margin-right:12px;accent-color:#FF6600;width:16px;height:16px;">' +
+            '<span>' + ep.label + '</span>' +
+            '</label>';
+    });
+    
+    var overlay = document.createElement("div");
+    overlay.id = "epSelectDialog";
+    overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;";
+    overlay.innerHTML = '<div style="background:#1A1A1A;border:1px solid #333;border-radius:12px;padding:28px;max-width:480px;max-height:80vh;overflow-y:auto;">' +
+        '<h3 style="color:#FFF;margin:0 0 8px;font-size:16px;">\u68c0\u6d4b\u5230 ' + episodes.length + ' \u96c6\uff0c\u8bf7\u9009\u62e9\u8981\u62c6\u89e3\u7684\u96c6</h3>' +
+        '<p style="color:#888;font-size:12px;margin:0 0 4px;">\u5267\u540d\uff1a<input id="epSelectScriptName" type="text" value="' + escapeHtml(detected) + '" style="background:#111;border:1px solid #444;border-radius:6px;color:#FFF;padding:6px 10px;font-size:13px;width:200px;margin-left:8px;"></p>' +
+        '<div style="display:flex;gap:12px;margin-bottom:12px;">' +
+            '<button id="epSelectAll" style="background:#333;color:#CCC;border:1px solid #444;border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;">\u5168\u9009</button>' +
+            '<button id="epDeselectAll" style="background:#333;color:#CCC;border:1px solid #444;border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;">\u53d6\u6d88\u5168\u9009</button>' +
+        '</div>' +
+        '<div id="epList">' + epListHtml + '</div>' +
+        '<div style="display:flex;gap:12px;justify-content:flex-end;margin-top:16px;">' +
+            '<button id="epSelectCancel" style="padding:8px 20px;background:#333;color:#CCC;border:1px solid #444;border-radius:8px;cursor:pointer;font-size:13px;">\u53d6\u6d88</button>' +
+            '<button id="epSelectConfirm" style="padding:8px 24px;background:#FF6600;color:#FFF;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">\u786e\u8ba4\u5e76\u5f00\u59cb</button>' +
+        '</div></div>';
+    document.body.appendChild(overlay);
+    
+    // Event handlers
+    document.getElementById('epSelectAll').addEventListener('click', function() {
+        document.querySelectorAll('.ep-checkbox').forEach(function(cb) { cb.checked = true; });
+    });
+    document.getElementById('epDeselectAll').addEventListener('click', function() {
+        document.querySelectorAll('.ep-checkbox').forEach(function(cb) { cb.checked = false; });
+    });
+    document.getElementById('epSelectCancel').addEventListener('click', function() {
+        document.body.removeChild(overlay);
+    });
+    document.getElementById('epSelectConfirm').addEventListener('click', function() {
+        var scriptName = document.getElementById('epSelectScriptName').value.trim() || detected;
+        state.scriptName = scriptName;
+        var checked = document.querySelectorAll('.ep-checkbox:checked');
+        var selected = [];
+        checked.forEach(function(cb) { selected.push(parseInt(cb.value)); });
+        if (!selected.length) return;
+        document.body.removeChild(overlay);
+        onConfirm(selected);
+    });
+    document.getElementById('epSelectScriptName').focus();
+    document.getElementById('epSelectScriptName').select();
+}
+
     function showScriptNameDialog(onConfirm) {
         var detected = guessScriptName();
         if (!DOM.scriptNameDialog) {
@@ -1586,6 +1986,13 @@
     // ============================================================
     
     // ===== 安全: HTML 净化函数 =====
+function escapeHtml(str) {
+    if (!str) return '';
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 function sanitizeHTML(str) {
     if (!str) return '';
     var temp = document.createElement('div');
@@ -1636,8 +2043,229 @@ document.addEventListener('DOMContentLoaded', function() {
         // 恢复辅助材料状态
         restoreMaterialsState();
         
-        console.log('剧本拆解大师 v2.49 已加载');
+
+        
+        console.log('剧本拆解大师 v2.52 已加载');
         console.log('支持 Ollama + DeepSeek API');
     });
+
+// ============================================================
+// 资产核对功能
+// ============================================================
+
+function handleAuditFileSelect(optFiles) {
+    var files = optFiles || Array.from(DOM.auditFileInput.files);
+    if (!files.length) return;
+    
+    state.auditFiles = [];
+    files.forEach(function(f) {
+        var epMatch = f.name.match(/(\d+)/);
+        var epNum = epMatch ? parseInt(epMatch[1]) : 999;
+        state.auditFiles.push({ file: f, name: f.name, epNum: epNum, status: 'pending', msg: '' });
+    });
+    
+    state.auditFiles.sort(function(a, b) { return a.epNum - b.epNum; });
+    renderAuditFileList();
+}
+
+function renderAuditFileList() {
+    DOM.auditFileList.style.display = 'block';
+    DOM.auditFileCount.textContent = state.auditFiles.length;
+    DOM.auditFiles.textContent = '';
+    
+    state.auditFiles.forEach(function(f, i) {
+        var el = document.createElement('div');
+        el.className = 'batch-file-item';
+        el.innerHTML = '<span class="batch-ep">EP' + f.epNum + '</span>' +
+            '<span class="batch-name">' + escapeHtml(f.name) + '</span>' +
+            '<span class="batch-status status-' + f.status + '">' + f.msg + '</span>';
+        DOM.auditFiles.appendChild(el);
+    });
+}
+
+function updateAuditFileStatus(epNum, status, msg) {
+    for (var i = 0; i < state.auditFiles.length; i++) {
+        if (state.auditFiles[i].epNum === epNum) {
+            state.auditFiles[i].status = status;
+            state.auditFiles[i].msg = msg || '';
+            break;
+        }
+    }
+    renderAuditFileList();
+}
+
+function showAuditSeriesNameDialog(callback) {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    
+    var guessedName = state.scriptName || '\u672a\u547d\u540d\u5267\u96c6';
+    
+    overlay.innerHTML = '<div style="background:#111;border:1px solid #333;border-radius:12px;padding:24px;width:380px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">' +
+        '<h3 style="margin:0 0 8px;color:#fff;font-size:16px;">\u8bf7\u8f93\u5165\u5267\u540d</h3>' +
+        '<p style="margin:0 0 16px;font-size:12px;color:#888;">\u8d44\u4ea7\u6838\u5bf9\u7ed3\u679c\u5c06\u6309\u6b64\u5267\u540d\u5f52\u6863</p>' +
+        '<input id="auditSeriesInput" type="text" value="' + escapeHtml(guessedName) + '" style="width:100%;box-sizing:border-box;padding:10px 12px;background:#111;border:1px solid #444;border-radius:6px;color:#fff;font-size:14px;margin-bottom:16px;" placeholder="\u8f93\u5165\u5267\u540d...">' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end;">' +
+            '<button id="auditSeriesCancel" style="padding:8px 16px;background:#333;color:#ccc;border:1px solid #444;border-radius:6px;cursor:pointer;font-size:13px;">\u53d6\u6d88</button>' +
+            '<button id="auditSeriesConfirm" style="padding:8px 20px;background:#7c4fd5;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">\u786e\u8ba4\u5e76\u5f00\u59cb</button>' +
+        '</div></div>';
+    
+    document.body.appendChild(overlay);
+    
+    document.getElementById('auditSeriesConfirm').addEventListener('click', function() {
+        var name = document.getElementById('auditSeriesInput').value.trim() || '\u672a\u547d\u540d\u5267\u96c6';
+        document.body.removeChild(overlay);
+        callback(name);
+    });
+    document.getElementById('auditSeriesCancel').addEventListener('click', function() {
+        document.body.removeChild(overlay);
+    });
+    setTimeout(function() {
+        document.getElementById('auditSeriesInput').focus();
+        document.getElementById('auditSeriesInput').select();
+    }, 100);
+}
+
+async function startAudit() {
+    if (state.auditRunning) return;
+    if (!state.auditFiles.length) {
+        showError('\u8bf7\u5148\u62d6\u5165\u5206\u96c6\u5267\u672c\u6587\u4ef6');
+        return;
+    }
+    var apiConfig = getApiConfig();
+    
+    showAuditSeriesNameDialog(async function(seriesName) {
+        state.auditRunning = true;
+        state.startTime = Date.now();
+        state.abortController = new AbortController();
+        DOM.auditStartBtn.disabled = true;
+        DOM.auditStartBtn.textContent = '\u6838\u5bf9\u4e2d...';
+        DOM.auditStopBtn.style.display = '';
+        DOM.auditProgressBar.style.display = 'block';
+        DOM.auditProgressFill.style.width = '0%';
+        
+        DOM.progressPanel.classList.add('show');
+        DOM.progressPanel.style.display = 'block';
+        if (DOM.resultsSection) DOM.resultsSection.classList.remove('show');
+        resetAllSteps();
+        hideError();
+        
+        DOM.analysisTimer.style.display = 'inline';
+        DOM.analysisTimer.textContent = '00:00';
+        if (state.timerInterval) clearInterval(state.timerInterval);
+        state.timerInterval = setInterval(updateTimer, 1000);
+        
+        var total = state.auditFiles.length;
+        
+        var formData = new FormData();
+        for (var i = 0; i < state.auditFiles.length; i++) {
+            formData.append('files', state.auditFiles[i].file);
+        }
+        formData.append('provider', apiConfig.provider);
+        formData.append('api_key', apiConfig.api_key || '');
+        formData.append('model', apiConfig.model || 'lfm2:latest');
+        formData.append('base_url', apiConfig.base_url);
+        formData.append('series_name', seriesName);
+        
+        try {
+            var response = await fetch('/api/asset_audit', {
+                method: 'POST',
+                body: formData,
+                signal: state.abortController.signal
+            });
+            
+            if (!response.ok) {
+                var errText = await response.text().catch(function() { return ''; });
+                throw new Error('\u670d\u52a1\u5668\u9519\u8bef (' + response.status + '): ' + (errText.slice(0, 200) || ''));
+            }
+            
+            var reader = response.body.getReader();
+            var decoder = new TextDecoder();
+            var buffer = '';
+            
+            while (true) {
+                var result = await reader.read();
+                if (result.done) break;
+                buffer += decoder.decode(result.value, { stream: true });
+                
+                var evLines = buffer.split('\n');
+                buffer = evLines.pop() || '';
+                var currentEvent = '', currentData = '';
+                
+                for (var li = 0; li < evLines.length; li++) {
+                    var line = evLines[li];
+                    if (line.startsWith('event: ')) { currentEvent = line.slice(7).trim(); }
+                    else if (line.startsWith('data: ')) { currentData = line.slice(6).trim(); }
+                    else if (line === '' && currentEvent && currentData) {
+                        try {
+                            var d = JSON.parse(currentData);
+                            if (currentEvent === 'info' && d.message) {
+                                showError(d.message, true);
+                            } else if (currentEvent === 'progress' && d.step === 'audit') {
+                                if (d.data && d.data.episode) {
+                                    var epIdx = state.auditFiles.findIndex(function(f) { return f.epNum === d.data.episode; });
+                                    if (epIdx >= 0) {
+                                        if (d.status === 'processing') {
+                                            updateAuditFileStatus(d.data.episode, 'processing', d.message || '\u5904\u7406\u4e2d...');
+                                            setStepStatus('stepChars', 'processing', d.message);
+                                        } else if (d.status === 'complete') {
+                                            updateAuditFileStatus(d.data.episode, 'done', d.message || '\u5b8c\u6210');
+                                            setStepStatus('stepChars', 'complete', d.message);
+                                        } else if (d.status === 'error') {
+                                            updateAuditFileStatus(d.data.episode, 'error', d.message || '\u5931\u8d25');
+                                            setStepStatus('stepChars', 'error', d.message);
+                                        }
+                                    }
+                                    var doneCount = state.auditFiles.filter(function(f) { return f.status === 'done'; }).length;
+                                    DOM.auditProgressFill.style.width = (doneCount / total * 90) + '%';
+                                    updateProgressBar((doneCount / total) * 90);
+                                }
+                            } else if (currentEvent === 'complete') {
+                                updateProgressBar(100);
+                                setStepStatus('stepReport', 'complete', d.message || '\u5b8c\u6210');
+                                DOM.auditProgressFill.style.width = '100%';
+                            } else if (currentEvent === 'error') {
+                                showError('\u8d44\u4ea7\u6838\u5bf9\u9519\u8bef: ' + (d.message || '\u672a\u77e5\u9519\u8bef'));
+                            }
+                        } catch (ee) {}
+                        currentEvent = ''; currentData = '';
+                    }
+                }
+            }
+            
+            var doneCount = state.auditFiles.filter(function(f) { return f.status === 'done'; }).length;
+            showError('\u8d44\u4ea7\u6838\u5bf9\u5b8c\u6210\uff01\u6210\u529f ' + doneCount + '/' + total + ' \u96c6', true);
+            
+        } catch (e) {
+            if (e.name !== 'AbortError') {
+                var detail = (e.message || '未知错误') + ' (类型: ' + (e.name || '?') + ')'; console.error('Asset audit fetch error:', e); showError('资产核对失败: ' + detail);
+            }
+        }
+        
+        state.auditRunning = false;
+        DOM.auditStartBtn.disabled = false;
+        DOM.auditStartBtn.textContent = '\u5f00\u59cb\u6838\u5bf9';
+        DOM.auditStopBtn.style.display = 'none';
+        
+        if (state.timerInterval) {
+            clearInterval(state.timerInterval);
+            state.timerInterval = null;
+        }
+        var elapsed = Math.floor((Date.now() - state.startTime) / 1000);
+        var mm = Math.floor(elapsed / 60);
+        var ss = elapsed % 60;
+        DOM.analysisTimer.textContent = '\u7528\u65f6 ' + String(mm).padStart(2,'0') + ':' + String(ss).padStart(2,'0');
+        DOM.analysisTimer.classList.add('done');
+        
+        setTimeout(function() { DOM.auditProgressBar.style.display = 'none'; }, 3000);
+    });
+}
+
+function stopAudit() {
+    state.auditRunning = false;
+    if (state.abortController) state.abortController.abort();
+    DOM.auditStartBtn.disabled = false;
+    DOM.auditStartBtn.textContent = '\u5f00\u59cb\u6838\u5bf9';
+    DOM.auditStopBtn.style.display = 'none';
+}
 
 })();
