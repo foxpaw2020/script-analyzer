@@ -5,3 +5,4 @@ requests>=2.31
 mammoth>=1.12
 gunicorn>=21.2; sys_platform != 'win32'
 gevent>=24.0; sys_platform != 'win32'
+pytest>=7.0

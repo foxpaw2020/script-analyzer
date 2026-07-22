@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 import requests
 
 from utils.text import safe_float, safe_int
+from utils.url import validate_api_base_url
 import config
 
 # ============================================================
@@ -160,6 +161,8 @@ def call_ai(system_prompt, user_prompt, api_config):
         model = provider.get_default_model() or ""
     if not base_url:
         base_url = provider.get_default_url() or ""
+
+    validate_api_base_url(base_url, provider_name)
 
     try:
         url, payload, headers = provider.build_request(model, base_url, system_prompt, user_prompt, api_config)

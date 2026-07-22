@@ -27,8 +27,10 @@ from extractors import characters, props, scenes, shots, emotion_timeline
 
 # 导入拆分后的模块
 from services.ai_service import call_ai
-from services.file_parser import parse_script
+from services.file_parser import parse_script, validate_file_type
 from utils.text import detect_episode, split_script_by_episodes
+from utils.url import validate_api_base_url
+from utils.validation import sanitize_api_config
 from asset_audit.auditor import extract_assets, merge_assets
 from asset_audit.pptx_builder import build_episode_pptx
 from asset_audit.html_builder import build_summary_html
@@ -104,8 +106,14 @@ def add_security_headers(response):
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     response.headers['Cache-Control'] = 'no-store'
-    # CORS: 仅允许同源
-    response.headers['Access-Control-Allow-Origin'] = '*'
+    # CORS: 仅允许同源或配置白名单
+    origin = request.headers.get('Origin')
+    if origin:
+        allowed_origins = config.ALLOWED_ORIGINS
+        if not allowed_origins:
+            allowed_origins = [request.host_url.rstrip('/')]
+        if origin in allowed_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
     return response
@@ -421,17 +429,15 @@ def list_models():
     data = request.get_json(silent=True) or {}
     api_key = data.get('api_key', '')
     base_url = data.get('base_url', config.DEEPSEEK_API_URL)
-    # SSRF 防护: 验证 base_url 在白名单内
-    if config.ALLOWED_BASE_URLS:
-        from urllib.parse import urlparse
-        parsed = urlparse(base_url)
-        if parsed.netloc not in config.ALLOWED_BASE_URLS:
-            return jsonify({
-                "error": "不允许的 API 地址",
-                "models": config.DEEPSEEK_KNOWN_MODELS,
-                "source": "fallback"
-            }), 200
-    
+    try:
+        validate_api_base_url(base_url, 'deepseek')
+    except ValueError as e:
+        return jsonify({
+            "error": str(e),
+            "models": config.DEEPSEEK_KNOWN_MODELS,
+            "source": "fallback"
+        }), 200
+
     if not api_key:
         # 无 API Key 时返回后备模型列表
         return jsonify({
@@ -503,9 +509,15 @@ def check_connection():
     provider = data.get('provider', 'deepseek')
     api_key = data.get('api_key', '')
     base_url = data.get('base_url', '')
-    
+
+    resolved_url = (base_url or (config.OLLAMA_BASE_URL if provider == 'ollama' else config.DEEPSEEK_API_URL)).rstrip('/')
+    try:
+        validate_api_base_url(resolved_url, provider)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)})
+
     if provider == 'ollama':
-        url = (base_url or config.OLLAMA_BASE_URL).rstrip('/') + '/api/tags'
+        url = resolved_url + '/api/tags'
         try:
             resp = requests.get(url, timeout=5)
             if resp.ok:
@@ -516,7 +528,7 @@ def check_connection():
         except Exception as e:
             return jsonify({"success": False, "message": str(e)})
     else:
-        url = (base_url or config.DEEPSEEK_API_URL).rstrip('/') + '/models'
+        url = resolved_url + '/models'
         headers = {}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -580,7 +592,16 @@ def analyze():
                 safe_name = f"{uuid.uuid4().hex}{ext}"
                 file_path = os.path.join(config.UPLOAD_FOLDER, safe_name)
                 file.save(file_path)
-                
+
+                # 校验文件内容是否与扩展名一致
+                if not validate_file_type(file_path):
+                    try:
+                        os.remove(file_path)
+                    except OSError:
+                        pass
+                    yield json_sse("error", {"message": "文件内容与实际格式不符，请检查文件"})
+                    return
+
                 try:
                     script_text = parse_script(file_path)
                 except Exception as e:
@@ -627,7 +648,8 @@ def analyze():
                 val = request.form.get(f'api_config[{key}]')
                 if val is not None:
                     api_config[key] = val
-            
+            api_config = sanitize_api_config(api_config)
+
             # 获取分析步骤参数（空=全部，指定则只跑该步）
             step_filter = request.form.get('step', '').strip()
             resume_step = request.form.get('resume_step', '').strip()
@@ -704,6 +726,7 @@ def analyze():
                         val = request.form.get(f'api_config[{key}]', '')
                         if val:
                             api_cfg[key] = val
+                    api_cfg = sanitize_api_config(api_cfg)
                     raw = call_ai(pre_sys, pre_user, api_cfg)
                     json_text = raw.strip()
                     js = json_text.find('{')

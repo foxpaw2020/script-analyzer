@@ -27,8 +27,13 @@ SECRET_KEY = _load_secret_key()
 BIND_HOST = os.environ.get('BIND_HOST', '127.0.0.1')
 
 # 允许的 base_url 白名单（防止 SSRF）
+# 允许的 base_url 白名单（防止 SSRF）
 _ALLOWED = os.environ.get('ALLOWED_BASE_URLS', '')
 ALLOWED_BASE_URLS = [u.strip() for u in _ALLOWED.split(',') if u.strip()] if _ALLOWED else None
+
+# 允许的跨域来源（默认空表示仅允许同源）
+_ALLOWED_ORIGINS = os.environ.get('ALLOWED_ORIGINS', '')
+ALLOWED_ORIGINS = [o.strip() for o in _ALLOWED_ORIGINS.split(',') if o.strip()] if _ALLOWED_ORIGINS else None
 
 # 上传目录和输出目录（用户可写）
 UPLOAD_FOLDER = get_user_path('uploads')

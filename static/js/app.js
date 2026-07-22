@@ -188,9 +188,7 @@
                 DOM.modelStatus.textContent = 'API 不可用，使用默认列表';
                 setTimeout(() => { DOM.modelStatus.style.display = 'none'; }, 4000);
             }
-            
-            // 保存 API Key 到 localStorage
-            localStorage.setItem('ds_api_key', apiKey);
+            // API Key 不再持久化到 localStorage
         })
         .catch(err => {
             DOM.modelSelect.disabled = false;
@@ -705,6 +703,12 @@
                     showError('文件解析失败: ' + (err.message || '网络错误'));
                 });
             return;
+        }
+        else {
+            // 纯文本模式（无文件上传）
+            showScriptNameDialog(function() {
+                checkMaterialsAndStart(doStartAnalysis);
+            });
         }
     }
     
@@ -1506,8 +1510,6 @@ function showPauseDialog(step, message, results) {
             if (!DOM.modelSelect.value) DOM.modelSelect.value = 'deepseek-v4-flash';
             DOM.baseUrlInput.placeholder = 'https://api.deepseek.com';
             DOM.baseUrlInput.value = 'https://api.deepseek.com';
-            const savedKey = localStorage.getItem('ds_api_key');
-            if (savedKey) DOM.apiKeyInput.value = savedKey;
             const savedUrl = localStorage.getItem('ds_base_url');
             if (savedUrl) DOM.baseUrlInput.value = savedUrl;
             
@@ -1521,8 +1523,6 @@ function showPauseDialog(step, message, results) {
             DOM.modelInput.value = DOM.modelInput.value || 'gpt-4o';
             DOM.baseUrlInput.placeholder = 'https://api.openai.com/v1';
             DOM.baseUrlInput.value = 'https://api.openai.com/v1';
-            const savedKey = localStorage.getItem('oa_api_key');
-            if (savedKey) DOM.apiKeyInput.value = savedKey;
             
         } else {
             DOM.apiKeyInput.style.display = 'none';
@@ -1985,7 +1985,23 @@ function showEpisodeSelectDialog(episodes, onConfirm) {
     // 初始化
     // ============================================================
     
-    // ===== 安全: HTML 净化函数 =====
+    // ===== 安全: API Key 显示/隐藏切换 =====
+function bindApiKeyToggle() {
+    var toggle = document.getElementById('apiKeyToggle');
+    var input = document.getElementById('apiKeyInput');
+    if (!toggle || !input) return;
+    toggle.addEventListener('click', function() {
+        if (input.type === 'password') {
+            input.type = 'text';
+            toggle.textContent = '隐藏';
+        } else {
+            input.type = 'password';
+            toggle.textContent = '显示';
+        }
+    });
+}
+
+// ===== 安全: HTML 净化函数 =====
 function escapeHtml(str) {
     if (!str) return '';
     var div = document.createElement('div');
@@ -2026,18 +2042,14 @@ function sanitizeHTML(str) {
 document.addEventListener('DOMContentLoaded', function() {
         initDOM();
         bindEvents();
+        bindApiKeyToggle();
         resetAllSteps();
         bindParamSliders();
         updateParamRange();
         
-        // 默认选中 DeepSeek，自动获取模型
+        // 默认选中 DeepSeek，使用默认模型列表
         if (DOM.apiProvider.value === 'deepseek') {
-            const savedKey = localStorage.getItem('ds_api_key');
-            if (savedKey) {
-                fetchModels();
-            } else {
-                showFallbackModels();
-            }
+            showFallbackModels();
         }
         
         // 恢复辅助材料状态

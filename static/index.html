@@ -5,8 +5,8 @@
 <!-- (C) foxpaw, 2026-07-15 -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>剧本拆解大师 v2.52</title>
-    <link rel="stylesheet" href="css/style.css?v=2.52">
+    <title>剧本拆解大师 v2.55</title>
+    <link rel="stylesheet" href="css/style.css?v=2.55">
 </head>
 <body>
 
@@ -28,7 +28,7 @@
                 <span>剧本拆解大师</span>
             </a>
             <div class="navbar-version">
-                v2.52 · AI Powered
+                v2.55 · AI Powered
             </div>
         </nav>
 
@@ -170,8 +170,12 @@
                 <option value="openai">OpenAI API</option>
             </select>
             
-            <input type="text" id="apiKeyInput" class="api-key-input" 
-                   placeholder="sk-..." title="API Key">
+            <div class="api-key-wrapper" style="position:relative;">
+                <input type="password" id="apiKeyInput" class="api-key-input" 
+                       placeholder="sk-..." title="API Key" autocomplete="off">
+                <button type="button" id="apiKeyToggle" class="api-key-toggle" title="显示/隐藏 Key"
+                        style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#888;cursor:pointer;font-size:12px;">显示</button>
+            </div>
             
             <label>模型</label>
             <input type="text" id="modelInput" class="model-input" 
@@ -342,7 +346,7 @@
 
         <!-- ===== Footer ===== -->
         <footer class="footer">
-            <p><span class="brand">剧本拆解大师 v2.52</span></p>
+            <p><span class="brand">剧本拆解大师 v2.55</span></p>
             <p style="margin-top: 4px;">基于 AI 的智能剧本分析工具 · 支持 Ollama &amp; DeepSeek</p>
         </footer>
 
@@ -351,6 +355,6 @@
     <!-- ===== Floating Shot Splitter Button ===== -->
     <button id="splitShotsBtn" class="split-btn" title="拆解全集分镜为单集文件">拆</button>
 
-    <script src="js/app.js?v=2.52"></script>
+    <script src="js/app.js?v=2.55"></script>
 </body>
 </html>

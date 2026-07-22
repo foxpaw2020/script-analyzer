@@ -85,3 +85,47 @@ def parse_txt(file_path):
         except (UnicodeDecodeError, LookupError) as e:
             tried.append(f'{encoding}({e})')
     raise ValueError(f"无法解码 TXT 文件，已尝试: {', '.join(tried)}，请使用 UTF-8 编码保存")
+
+
+# 文件头魔数映射
+FILE_MAGIC = {
+    b'%PDF': '.pdf',
+    b'PK\x03\x04': '.docx',
+    b'\x89PNG\r\n\x1a\n': '.png',
+    b'\xff\xd8\xff': '.jpg',
+}
+
+
+def validate_file_type(file_path):
+    """通过文件头和内容校验扩展名是否匹配真实类型。
+
+    Args:
+        file_path: 上传文件保存路径。
+
+    Returns:
+        bool: True if the file content matches the claimed extension.
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext not in ('.pdf', '.docx', '.doc', '.txt', '.md', '.markdown'):
+        return False
+
+    try:
+        with open(file_path, 'rb') as f:
+            header = f.read(8)
+    except OSError:
+        return False
+
+    if ext in ('.txt', '.md', '.markdown'):
+        # 文本文件：尝试 UTF-8 解码，避免二进制可执行文件伪装
+        try:
+            header.decode('utf-8', errors='strict')
+            return True
+        except UnicodeDecodeError:
+            return False
+
+    for magic, real_ext in FILE_MAGIC.items():
+        if header.startswith(magic):
+            return ext == real_ext
+
+    # 旧 .doc 格式无法简单识别，允许通过
+    return ext == '.doc'
